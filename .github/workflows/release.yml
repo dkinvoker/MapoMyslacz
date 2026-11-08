@@ -1,0 +1,88 @@
+# Wydanie nowej wersji: wypchnij tag w postaci v<wersja>, np.
+#   git tag v1.1.0 && git push origin v1.1.0
+# Workflow uruchamia testy, buduje jednoplikowy exe (x64 i ARM64), wyciąga opis zmian z CHANGELOG.md
+# i publikuje wydanie na GitHubie. Zainstalowane programy zobaczą je przy najbliższym sprawdzeniu aktualizacji.
+name: Wydanie
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Numer wersji (np. 1.1.0) — tylko do ręcznego zbudowania, bez publikacji'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Numer wersji
+        id: ver
+        shell: pwsh
+        run: |
+          $v = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.version }}' } else { '${{ github.ref_name }}'.TrimStart('v') }
+          if ($v -notmatch '^\d+\.\d+(\.\d+)?$') { throw "Niepoprawny numer wersji: $v (oczekiwano np. 1.2.0)" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Testy
+        run: dotnet test src/MapoMyslacz.Tests -c Release
+
+      - name: Budowanie x64
+        shell: pwsh
+        run: ./publish.ps1 -Arch x64 -Version ${{ steps.ver.outputs.version }}
+
+      - name: Budowanie ARM64
+        shell: pwsh
+        continue-on-error: true
+        run: ./publish.ps1 -Arch arm64 -Version ${{ steps.ver.outputs.version }}
+
+      - name: Opis wydania z CHANGELOG.md
+        shell: pwsh
+        run: |
+          $want = [version]('${{ steps.ver.outputs.version }}' + $(if ('${{ steps.ver.outputs.version }}' -match '^\d+\.\d+$') { '.0' }))
+          $lines = Get-Content CHANGELOG.md -Encoding UTF8
+          $notes = @(); $inside = $false
+          foreach ($l in $lines) {
+            if ($l -match '^## ') {
+              if ($inside) { break }
+              if ($l -match '(\d+)\.(\d+)(?:\.(\d+))?') {
+                $v = [version]("{0}.{1}.{2}" -f $Matches[1], $Matches[2], $(if ($Matches[3]) { $Matches[3] } else { 0 }))
+                $inside = $v -eq $want
+              }
+              continue
+            }
+            if ($inside) { $notes += $l }
+          }
+          if ($notes.Count -eq 0) { $notes = @("Wersja ${{ steps.ver.outputs.version }}.") }
+          $notes += ''
+          $notes += '---'
+          $notes += '**Jak zainstalować:** pobierz `MapoMyslacz.exe` (komputery z procesorem ARM: `MapoMyslacz-arm64.exe`) i uruchom. To jeden plik — instalacja nie jest potrzebna. Program sam sprawdza aktualizacje.'
+          $notes += ''
+          foreach ($f in Get-ChildItem dist/*.exe) {
+            $notes += "SHA-256 ``$($f.Name)``: ``$((Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant())``"
+          }
+          Set-Content -Path release-notes.md -Value $notes -Encoding UTF8
+
+      - name: Pliki do pobrania (artefakt)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MapoMyslacz-${{ steps.ver.outputs.version }}
+          path: dist/*.exe
+
+      - name: Publikacja wydania
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MapoMyślacz ${{ steps.ver.outputs.version }}
+          body_path: release-notes.md
+          files: dist/*.exe

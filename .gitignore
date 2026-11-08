@@ -1,0 +1,36 @@
+## .NET — wyniki budowania i pliki narzędzi
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+project.lock.json
+project.fragment.lock.json
+*.nupkg
+*.snupkg
+*.binlog
+[Tt]est[Rr]esult*/
+.vs/
+*.user
+~$*
+*~
+
+## MapoMyślacz — gotowe paczki z publish.ps1
+publish/
+dist/
+release-notes.md
+
+## Prywatne mapy w głównym folderze (np. przekonwertowane z XMind) — nie trafiają do repozytorium.
+## Usuń te linie, jeśli chcesz je jednak commitować.
+/*.xmind
+/*.mapo

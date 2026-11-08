@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MapoMyslacz.Core/MapoMyslacz.Core.csproj" />
+    <Project Path="src/MapoMyslacz.Launcher/MapoMyslacz.Launcher.csproj" />
+    <Project Path="src/MapoMyslacz.Tests/MapoMyslacz.Tests.csproj" />
+    <Project Path="src/MapoMyslacz/MapoMyslacz.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/XmindConvert/XmindConvert.csproj" />
+  </Folder>
+</Solution>

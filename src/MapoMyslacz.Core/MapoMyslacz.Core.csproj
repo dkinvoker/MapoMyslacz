@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Logika niezależna od interfejsu: model mapy, format pliku, geometria, układ, historia zmian,
+       logika aktualizacji, import z XMind. Testowana jednostkowo. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>MapoMyslacz.Core</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MapoMyslacz.Tests" />
+  </ItemGroup>
+
+</Project>

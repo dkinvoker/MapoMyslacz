@@ -1,0 +1,223 @@
+{
+  "format": "MapoMyslacz",
+  "formatVersion": 1,
+  "title": "Przewodnik po MapoMyślaczu",
+  "nodes": [
+    {
+      "id": "25fc146ifw",
+      "text": "MapoMyślacz",
+      "style": {
+        "shape": "rounded",
+        "fill": "#5B21B6",
+        "fontSize": 22,
+        "bold": true
+      }
+    },
+    {
+      "id": "y10xchh985",
+      "text": "Kafelki",
+      "x": 188,
+      "parent": "25fc146ifw"
+    },
+    {
+      "id": "14ypq7mt7m",
+      "text": "Dwuklik na pustym miejscu\ntworzy nowy kafelek",
+      "x": 390,
+      "y": -204,
+      "parent": "y10xchh985"
+    },
+    {
+      "id": "apsi3p5vws",
+      "text": "Tab — dziecko\nEnter — rodzeństwo",
+      "x": 364,
+      "y": -128,
+      "parent": "y10xchh985"
+    },
+    {
+      "id": "km0irn8xb7",
+      "text": "Zacznij pisać, żeby\nzmienić tekst",
+      "x": 362,
+      "y": -52,
+      "parent": "y10xchh985"
+    },
+    {
+      "id": "p0t5tdnyjj",
+      "text": "Kształty i style",
+      "x": 349,
+      "y": 114,
+      "parent": "y10xchh985"
+    },
+    {
+      "id": "9dhlad52mb",
+      "text": "Romb",
+      "x": 517,
+      "y": 28,
+      "parent": "p0t5tdnyjj",
+      "style": {
+        "shape": "diamond",
+        "fill": "#FF9595"
+      }
+    },
+    {
+      "id": "as6cfks6pi",
+      "text": "Owal z kreskami",
+      "x": 552,
+      "y": 99,
+      "parent": "p0t5tdnyjj",
+      "style": {
+        "shape": "pill",
+        "border": "#000000",
+        "borderWidth": 2,
+        "borderPattern": "dashed"
+      }
+    },
+    {
+      "id": "ta5c1s1mq6",
+      "text": "Ważny",
+      "x": 517,
+      "y": 158,
+      "parent": "p0t5tdnyjj",
+      "style": {
+        "fill": "#7F00AC",
+        "fontSize": 18,
+        "bold": true
+      }
+    },
+    {
+      "id": "a2wtgt25z7",
+      "text": "Karteczka",
+      "x": 518,
+      "y": 216,
+      "parent": "p0t5tdnyjj",
+      "style": {
+        "shape": "rectangle",
+        "fill": "#FFF4B8",
+        "fontSize": 14,
+        "align": "left"
+      },
+      "note": "Każdy kafelek może mieć notatkę — widać ją w panelu po prawej."
+    },
+    {
+      "id": "l841hlfbrz",
+      "text": "Strzałki",
+      "x": -192,
+      "y": 188,
+      "parent": "25fc146ifw"
+    },
+    {
+      "id": "b31uzk6cea",
+      "text": "Przeciągnij kółko „+”\nna inny kafelek",
+      "x": -376,
+      "y": 112,
+      "parent": "l841hlfbrz"
+    },
+    {
+      "id": "7ywew5sptl",
+      "text": "Przeciągnij strzałkę,\nżeby ją wygiąć",
+      "x": -374,
+      "y": 188,
+      "parent": "l841hlfbrz"
+    },
+    {
+      "id": "juui559ecx",
+      "text": "Podpis: zaznacz\nstrzałkę i pisz",
+      "x": -360,
+      "y": 264,
+      "parent": "l841hlfbrz"
+    },
+    {
+      "id": "qb0wj3ve50",
+      "text": "Płótno",
+      "x": -187,
+      "y": -30,
+      "parent": "25fc146ifw"
+    },
+    {
+      "id": "hs50wb6gvk",
+      "text": "Przeciągnij puste miejsce\n— przesuwanie",
+      "x": -381,
+      "y": -96,
+      "parent": "qb0wj3ve50"
+    },
+    {
+      "id": "ofslhj03ar",
+      "text": "Shift/Ctrl + przeciągnij\n— zaznaczanie",
+      "x": -372,
+      "y": -20,
+      "parent": "qb0wj3ve50"
+    },
+    {
+      "id": "4l8cc76v9b",
+      "text": "Kółko myszy — powiększenie",
+      "x": -392,
+      "y": 46,
+      "parent": "qb0wj3ve50"
+    },
+    {
+      "id": "k1ovjo3uzf",
+      "text": "Pliki",
+      "x": -180,
+      "y": -218,
+      "parent": "25fc146ifw"
+    },
+    {
+      "id": "nx35j60sut",
+      "text": "*.mapo to czytelny JSON",
+      "x": -366,
+      "y": -274,
+      "parent": "k1ovjo3uzf"
+    },
+    {
+      "id": "4o08mh15oz",
+      "text": "Import z XMind",
+      "x": -334,
+      "y": -218,
+      "parent": "k1ovjo3uzf"
+    },
+    {
+      "id": "yr8bhs1grh",
+      "text": "Eksport do PNG (Ctrl+E)",
+      "x": -363,
+      "y": -162,
+      "parent": "k1ovjo3uzf"
+    },
+    {
+      "id": "b8nd3y2saa",
+      "text": "Swobodny kafelek bez rodzica",
+      "x": 70,
+      "y": 270,
+      "style": {
+        "shape": "ellipse",
+        "fill": "#CDEFF7"
+      }
+    },
+    {
+      "id": "1jmwtg7udd",
+      "text": "Przewodnik",
+      "y": -330,
+      "style": {
+        "shape": "none",
+        "fontSize": 34,
+        "bold": true
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "js4b9pbh4q",
+      "from": "b8nd3y2saa",
+      "to": "25fc146ifw",
+      "label": "strzałka z podpisem"
+    },
+    {
+      "id": "rxazjfcf39",
+      "from": "b31uzk6cea",
+      "to": "p0t5tdnyjj",
+      "label": "np. tak",
+      "style": {
+        "color": "#7C3AED",
+        "pattern": "solid"
+      }
+    }
+  ]
+}

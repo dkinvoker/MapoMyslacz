@@ -1,0 +1,17 @@
+<Project>
+
+  <!-- Jedno miejsce z numerem wersji dla aplikacji, startera i biblioteki. Zmiany opisuje CHANGELOG.md.
+       Workflow GitHuba (.github/workflows/release.yml) sprawdza, czy tag wydania (v1.2.3) zgadza się z tym numerem. -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <!-- we właściwościach pliku sam numer wersji (bez doklejonego hasha commita) -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Product>MapoMyślacz</Product>
+    <Company>MapoMyślacz</Company>
+    <Copyright>© 2026 MapoMyślacz</Copyright>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

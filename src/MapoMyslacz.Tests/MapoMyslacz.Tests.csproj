@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Testy logiki MapoMyślacza: model mapy, format .mapo, operacje edycyjne, historia cofania, geometria strzałek,
+    automatyczny układ, style, import z XMind, aktualizacje oraz starter (rozpakowywanie, skrypt deinstalacji).
+    Bez WinUI — testy nie otwierają okna i działają w kilka sekund:  dotnet test src/MapoMyslacz.Tests
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>MapoMyslacz.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- logika startera jest w osobnym exe — kompilujemy jej pliki razem z testami -->
+    <Compile Include="..\MapoMyslacz.Launcher\AppExtractor.cs" Link="Launcher\AppExtractor.cs" />
+    <Compile Include="..\MapoMyslacz.Launcher\UninstallScript.cs" Link="Launcher\UninstallScript.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MapoMyslacz.Core\MapoMyslacz.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="MapoMyslacz.Core.Model" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Jednoplikowa wersja MapoMyślacza: mały exe (Native AOT) z osadzoną, spakowaną aplikacją.
+    Przy pierwszym uruchomieniu rozpakowuje ją do %LOCALAPPDATA%\MapoMyslacz\app\<id> i uruchamia;
+    kolejne starty tej samej wersji tylko ją uruchamiają.
+
+    Budowanie (robi to publish.ps1):
+      dotnet publish src/MapoMyslacz.Launcher -c Release -r win-x64 -p:AppPublishDir=<folder z publish aplikacji>
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <AssemblyName>MapoMyslacz</AssemblyName>
+    <RootNamespace>MapoMyslacz.Launcher</RootNamespace>
+    <ApplicationIcon>..\MapoMyslacz\Assets\AppIcon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <PublishAot>true</PublishAot>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <StackTraceSupport>false</StackTraceSupport>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <Description>MapoMyślacz — mapy myśli</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MapoMyslacz.Tests" />
+  </ItemGroup>
+
+  <!-- Pakuje gotową aplikację i osadza ją jako zasób (payload.zip + payload.id = SHA-256 paczki). -->
+  <Target Name="EmbedAppPayload" BeforeTargets="BeforeBuild" Condition="'$(AppPublishDir)' != ''">
+    <PropertyGroup>
+      <_AppDir>$([MSBuild]::EnsureTrailingSlash('$([System.IO.Path]::GetFullPath('$(AppPublishDir)'))'))</_AppDir>
+      <_PayloadZip>$(IntermediateOutputPath)payload.zip</_PayloadZip>
+      <_PayloadId>$(IntermediateOutputPath)payload.id</_PayloadId>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_AppDir)MapoMyslacz.exe')" Text="W '$(_AppDir)' nie ma MapoMyslacz.exe — najpierw opublikuj aplikację." />
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <ZipDirectory SourceDirectory="$(_AppDir)" DestinationFile="$(_PayloadZip)" Overwrite="true" />
+    <GetFileHash Files="$(_PayloadZip)" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_PayloadHash" />
+    </GetFileHash>
+    <WriteLinesToFile File="$(_PayloadId)" Lines="$(_PayloadHash)" Overwrite="true" />
+    <ItemGroup>
+      <EmbeddedResource Include="$(_PayloadZip)" LogicalName="payload.zip" />
+      <EmbeddedResource Include="$(_PayloadId)" LogicalName="payload.id" />
+    </ItemGroup>
+    <Message Importance="high" Text="Osadzono aplikację: $(_PayloadZip) (id $(_PayloadHash.Substring(0, 12)))" />
+  </Target>
+
+</Project>
