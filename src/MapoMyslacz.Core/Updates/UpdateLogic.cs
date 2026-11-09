@@ -23,13 +23,15 @@ public sealed record ReleaseInfo(Version Version, string Tag, string Title, stri
 public static partial class UpdateLogic
 {
     /// <summary>
-    /// Repozytorium z wydaniami (właściciel/nazwa). GitHub zamienił „ś” z nazwy „MapoMyślacz” na „-”.
-    /// Po zmianie nazwy repozytorium GitHub przekierowuje stary adres, więc wpis działa dalej.
+    /// Repozytorium z wydaniami (właściciel/nazwa) — tej samej nazwy szukają wszystkie wersje od 1.0.
     /// </summary>
-    public const string Repository = "dkinvoker/MapoMy-lacz";
+    public const string Repository = "dkinvoker/MapoMyslacz";
 
-    /// <summary>Gdzie jeszcze szukać wydań (nazwa używana w wersjach 1.0–1.1), gdy główne repozytorium zwróci 404.</summary>
-    public static readonly IReadOnlyList<string> Repositories = [Repository, "dkinvoker/MapoMyslacz"];
+    /// <summary>
+    /// Gdzie jeszcze szukać wydań, gdy główne repozytorium zwróci 404: dawna nazwa (GitHub zamienił „ś” na „-”),
+    /// z której GitHub przekierowuje po zmianie nazwy.
+    /// </summary>
+    public static readonly IReadOnlyList<string> Repositories = [Repository, "dkinvoker/MapoMy-lacz"];
 
     /// <summary>Plik wydania z jednoplikową aplikacją (x64). Wersja ARM64 ma przyrostek -arm64.</summary>
     public const string AssetName = "MapoMyslacz.exe";

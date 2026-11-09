@@ -242,7 +242,9 @@ public class MarkersLinksExportTests
     public void Updates_FallbackRepositories()
     {
         Assert.Equal(UpdateLogic.Repository, UpdateLogic.Repositories[0]);
-        Assert.Contains("dkinvoker/MapoMyslacz", UpdateLogic.Repositories);
+        // nazwy, pod którą szukają wydań zainstalowane wersje 1.0–1.1, nie wolno zmienić
+        Assert.Equal("dkinvoker/MapoMyslacz", UpdateLogic.Repository);
+        Assert.Contains("dkinvoker/MapoMy-lacz", UpdateLogic.Repositories);
         Assert.Equal("https://api.github.com/repos/a/b/releases/latest", UpdateLogic.LatestReleaseApiFor("a/b"));
     }
 }

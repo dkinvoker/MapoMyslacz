@@ -4,7 +4,7 @@ Program do map myśli: kafelki, gałęzie i strzałki z podpisami na nieskończo
 do **Native AOT** (okno pojawia się w ułamku sekundy) i rozdawany jako **jeden plik `.exe`** — bez instalatora,
 z automatycznymi aktualizacjami z wydań na GitHubie.
 
-**Wersja 1.2** — co się zmieniało, opisuje [CHANGELOG.md](CHANGELOG.md), a pomysły na dalszy rozwój
+**Wersja 1.2.1** — co się zmieniało, opisuje [CHANGELOG.md](CHANGELOG.md), a pomysły na dalszy rozwój
 [Developement.md](Developement.md).
 
 ![Przykładowa mapa](docs/przewodnik.png)
@@ -70,7 +70,7 @@ z automatycznymi aktualizacjami z wydań na GitHubie.
 
 ## Instalacja
 
-Pobierz `MapoMyslacz.exe` ze strony [wydań](https://github.com/dkinvoker/MapoMy-lacz/releases)
+Pobierz `MapoMyslacz.exe` ze strony [wydań](https://github.com/dkinvoker/MapoMyslacz/releases)
 (komputery z procesorem ARM: `MapoMyslacz-arm64.exe`), połóż gdzie chcesz i uruchom. To wszystko.
 
 Przy pierwszym uruchomieniu (trwa to sekundę–dwie) program:
@@ -93,27 +93,32 @@ Jeśli skrypt zniknął, uruchom program raz — pojawi się ponownie.
 ## Aktualizacje
 
 Kilka sekund po starcie (najwyżej raz na dobę) program pyta GitHuba o najnowsze wydanie
-(`api.github.com/repos/dkinvoker/MapoMy-lacz/releases/latest` — bez żadnych danych o użytkowniku, tylko nazwa
+(`api.github.com/repos/dkinvoker/MapoMyslacz/releases/latest` — bez żadnych danych o użytkowniku, tylko nazwa
 i wersja programu w nagłówku). Gdy jest nowsza wersja, u góry okna pojawia się pasek: *Zaktualizuj*, *Co nowego?*
 (opis wydania), *Pomiń tę wersję*. „Zaktualizuj” pobiera nowy exe, sprawdza jego **sumę SHA-256** podaną przez
 GitHub (inna suma = przerwanie bez żadnych zmian), podmienia plik i po „Uruchom ponownie” startuje nowa wersja
 z otwartą mapą. Automatyczne sprawdzanie można wyłączyć w menu **?**, tam też jest „Sprawdź aktualizacje”.
 
 Wymagania: repozytorium z wydaniami musi być **publiczne** (API GitHuba bez logowania nie widzi prywatnych).
-Nazwa repozytorium jest w `src/MapoMyslacz.Core/Updates/UpdateLogic.cs` (`Repository`; GitHub zamienił „ś” na „-”,
-stąd `MapoMy-lacz`). Wersje 1.0–1.1 szukają wydań pod nazwą `dkinvoker/MapoMyslacz` — po zmianie nazwy repozytorium
-na `MapoMyslacz` (GitHub przekierowuje stare adresy) zobaczą aktualizacje także one.
+Nazwa repozytorium jest w `src/MapoMyslacz.Core/Updates/UpdateLogic.cs` (`Repository`). **Nie zmieniaj jej** —
+zainstalowane wersje szukają wydań pod `dkinvoker/MapoMyslacz`; dawna nazwa `MapoMy-lacz` jest tylko zapasowa.
 
 ### Wydawanie nowej wersji
 
 1. Zmień numer w `Directory.Build.props` (`<Version>`), dopisz sekcję do `CHANGELOG.md` (np. `## 1.1 — 2026-12-01`).
-2. Commit, a potem tag z tym samym numerem:
+2. **Najpierw commit**, dopiero potem tag z tym samym numerem (tag dostaje commit, który jest *w tej chwili*
+   wybrany — tag zrobiony przed commitem zbuduje wydanie ze starego kodu):
+   ```bash
+   git commit -am "1.1.0"
+   ```
    ```bash
    git tag v1.1.0
    ```
    ```bash
    git push origin main --tags
    ```
+   Opublikowanego numeru wersji nie używaj drugi raz — jeśli wydanie wyszło źle, usuń je i wydaj kolejny numer
+   (zainstalowane programy, które już pobrały zepsute wydanie, nie zobaczyłyby poprawki z tym samym numerem).
 3. Workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) uruchomi testy, zbuduje
    `MapoMyslacz.exe` (x64) i `MapoMyslacz-arm64.exe`, wyciągnie opis zmian z CHANGELOG.md, dopisze sumy SHA-256
    i opublikuje wydanie. Zainstalowane kopie zobaczą je przy najbliższym sprawdzeniu.

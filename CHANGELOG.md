@@ -4,7 +4,10 @@ Numer wersji jest w jednym miejscu: `Directory.Build.props` (`<Version>`).
 Widać go na pasku tytułu aplikacji, w oknie „O programie” i we właściwościach pliku exe.
 Sekcja z numerem wersji trafia automatycznie do opisu wydania na GitHubie (patrz README → „Wydawanie nowej wersji”).
 
-## 1.2 — 2026-11-09
+## 1.2.1 — 2026-11-09
+
+Pierwsze właściwe wydanie wersji 1.2. Wydanie 1.2.0 na GitHubie powstało przez pomyłkę ze starego kodu (tag wskazywał
+commit wersji 1.0), więc zawierało program 1.1 z numerem 1.2.0 — zostało usunięte. Zmiany względem 1.1:
 
 ### Nowe
 - **Płótno rysowane przez Win2D.** Cała mapa powstaje na jednej powierzchni zamiast setek elementów XAML;
@@ -33,8 +36,8 @@ Sekcja z numerem wersji trafia automatycznie do opisu wydania na GitHubie (patrz
 - **Zaznaczanie prostokątem nie przycina się**: w trakcie przeciągania tylko podgląd na płótnie, zaznaczenie trafia
   do mapy po puszczeniu myszy, a panel właściwości przebudowuje się raz, gdy interfejs jest bezczynny
   (wcześniej przy każdym ruchu myszy budował od nowa setki kontrolek).
-- **Aktualizacje**: wersje 1.0–1.1 szukały wydań w `dkinvoker/MapoMyslacz`, a repozytorium nazywa się
-  `dkinvoker/MapoMy-lacz` — teraz sprawdzane są obie nazwy.
+- **Aktualizacje**: repozytorium nazywa się teraz `dkinvoker/MapoMyslacz` (tak jak szukały wersje 1.0–1.1);
+  dawna nazwa `dkinvoker/MapoMy-lacz` jest sprawdzana zapasowo.
 - Emoji zapisują się w pliku `.mapo` wprost (wcześniej jako `\uD83D…`).
 - Testy: 119 (znaczniki, linki, rozkład stron do druku/PDF, zapis PDF).
 
