@@ -1,9 +1,9 @@
 <Project>
 
   <!-- Jedno miejsce z numerem wersji dla aplikacji, startera i biblioteki. Zmiany opisuje CHANGELOG.md.
-       Workflow GitHuba (.github/workflows/release.yml) sprawdza, czy tag wydania (v1.2.3) zgadza się z tym numerem. -->
+       Workflow GitHuba (.github/workflows/release.yml) buduje wydanie z numerem z taga (v1.2.3 → 1.2.3) — trzymaj je zgodne. -->
   <PropertyGroup>
-    <Version>1.0.0</Version>
+    <Version>1.2.0</Version>
     <!-- we właściwościach pliku sam numer wersji (bez doklejonego hasha commita) -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>MapoMyślacz</Product>

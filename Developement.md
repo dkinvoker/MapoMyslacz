@@ -13,12 +13,19 @@ Orientacyjna ilość pracy: **[S]** mała, **[M]** średnia, **[L]** duża.
 - **Wyrównaj / rozłóż równo [S]:** dla zaznaczonych kafelków — do lewej, do środka, w równych odstępach.
 - **Ramki / grupy tematyczne [M]:** półprzezroczysty prostokąt z nagłówkiem za grupą kafelków („Wioska”, „Las”),
   przesuwany razem z zawartością (XMind ma to jako „granice”).
+- **Przeciąganie na ogromnych mapach [M]:** gdy na ekranie są tysiące elementów, przesuwanie kafelka rysuje całą scenę
+  w każdej klatce (~80 ms przy 3600 widocznych kafelkach). Można rysować nieruchomą część z bitmapy, a na wierzchu
+  tylko to, co się rusza (przesuwanie widoku i zaznaczanie już tak działają).
+
+## 🗺️ Kampania (mapy połączone linkami)
+- **Linki zwrotne [S]:** w mapie, do której prowadzą linki, pokazać „Wejścia: Sesja 1, Plansza ogólna” — nawigacja
+  po kampanii w obie strony (wymaga przejrzenia map w folderze).
+- **Podgląd linkowanej mapy [S]:** po najechaniu na znaczek linku — miniatura mapy docelowej.
+- **Link do konkretnego kafelka [S]:** `sesja 2.mapo#id` — po otwarciu mapa przewija się do wskazanego kafelka.
 
 ## ✍️ Treść kafelków
 - **Obrazki w kafelkach [M]:** wklejenie/przeciągnięcie obrazka (osadzany w pliku jako base64 albo obok mapy).
   Import z XMind mógłby wtedy przenosić też obrazki.
-- **Ikony i znaczniki [S]:** zestaw emoji/ikon (priorytet, postęp, ✔, ⚠, 🗡️, 🏰) przypinanych do kafelka.
-- **Linki [S]:** adres URL albo inny plik `.mapo` w kafelku — Ctrl+klik otwiera (mapy połączone w kampanię).
 - **Proste formatowanie tekstu [M]:** pogrubienie/kursywa fragmentu, listy punktowane w kafelku i w notatce.
 - **Zmiana rozmiaru kafelka myszą [S]:** uchwyt na krawędzi ustawiający szerokość zawijania (`width` już jest w formacie).
 
@@ -39,7 +46,11 @@ Orientacyjna ilość pracy: **[S]** mała, **[M]** średnia, **[L]** duża.
 ## 📄 Pliki i wymiana
 - **Autozapis i odzyskiwanie po awarii [S]:** kopia co minutę w `%LOCALAPPDATA%\MapoMyslacz\autosave`, propozycja
   przywrócenia po nieoczekiwanym zamknięciu.
-- **Eksport SVG i PDF [M]:** wektorowo, idealnie ostro do druku (rdzeń ma już całą geometrię strzałek i kształtów).
+- **Wektorowy PDF i SVG [M–L]:** dziś PDF i druk są rastrowe (strony jako obrazy 150–600 dpi — ostre, ale pliki są
+  większe, a tekstu nie da się zaznaczyć). Kształty i krzywe przeniesie się łatwo (rdzeń ma całą geometrię), trudniejsze
+  są czcionki: trzeba osadzić podzbiór Segoe UI (TrueType/CID) z polskimi znakami; emoji mogą zostać obrazkami.
+- **Druk: podgląd wszystkich stron i znaczniki do sklejania [S]:** przy podziale na strony — miniatury całego plakatu
+  i delikatne znaczniki zakładki/cięcia na krawędziach.
 - **Eksport/import konspektu [S]:** zapis mapy jako Markdown z nagłówkami/listą (wklejanie konspektu już działa).
 - **Import z FreeMind/Freeplane (.mm) [M]:** to prosty XML — kolejny popularny format map.
 - **Kilka arkuszy w jednym pliku [M]:** zakładki nad płótnem, jak w XMind (np. osobny arkusz na każdą sesję gry).
@@ -57,6 +68,4 @@ Orientacyjna ilość pracy: **[S]** mała, **[M]** średnia, **[L]** duża.
 - **Podpisywanie exe [S–M]:** certyfikat (np. Azure Trusted Signing) — mniej ostrzeżeń SmartScreen przy pobieraniu.
 - **Aktualizacje różnicowe [M]:** dziś pobierany jest cały exe (~30 MB); można by pobierać tylko zmienioną aplikację
   (paczka z warstwą Windows App SDK zmienia się rzadko).
-- **Rysowanie przez Win2D/Composition [L]:** przy tysiącach kafelków elementy XAML zaczną zwalniać — rysowanie
-  na jednej powierzchni (z wirtualizacją poza ekranem) skaluje się lepiej.
 - **Testy interfejsu [M]:** automatyczne testy płótna (np. WinAppDriver/UI Automation) dla przeciągania i edycji.

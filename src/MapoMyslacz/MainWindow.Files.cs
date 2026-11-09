@@ -117,32 +117,39 @@ public sealed partial class MainWindow
     {
         if (!await ConfirmDiscardAsync()) return;
         LoadSession(new MapSession());
+        ClearBackStack();
     }
 
     private async Task OpenAsync()
     {
         if (!await ConfirmDiscardAsync()) return;
-        if (await PickOpenAsync(MindMap.FileExtension, ".xmind", ".json") is { } path) await OpenFileAsync(path, confirm: false);
+        if (await PickOpenAsync(MindMap.FileExtension, ".xmind", ".json") is { } path && await OpenFileAsync(path, confirm: false))
+            ClearBackStack();
     }
 
-    /// <summary>Otwiera mapę .mapo albo importuje plik XMind.</summary>
-    public async Task OpenFileAsync(string path, bool confirm = true)
+    /// <summary>„Wstecz” dotyczy tylko przechodzenia linkami — zwykłe otwarcie innej mapy zaczyna od nowa.</summary>
+    private void ClearBackStack()
     {
-        if (confirm && !await ConfirmDiscardAsync()) return;
+        _backStack.Clear();
+        UpdateBackButton();
+    }
+
+    /// <summary>Otwiera mapę .mapo albo importuje plik XMind. Zwraca true, gdy mapa została otwarta.</summary>
+    public async Task<bool> OpenFileAsync(string path, bool confirm = true)
+    {
+        if (confirm && !await ConfirmDiscardAsync()) return false;
         try
         {
-            if (path.EndsWith(".xmind", StringComparison.OrdinalIgnoreCase))
-            {
-                await ImportXmindFileAsync(path);
-                return;
-            }
+            if (path.EndsWith(".xmind", StringComparison.OrdinalIgnoreCase)) return await ImportXmindFileAsync(path);
             var session = MapSession.Open(path);
             LoadSession(session);
             _settings.AddRecent(path);
+            return true;
         }
         catch (Exception ex)
         {
             await ShowErrorAsync("Nie udało się otworzyć mapy", $"{Path.GetFileName(path)}\n\n{ex.Message}");
+            return false;
         }
     }
 
@@ -152,7 +159,7 @@ public sealed partial class MainWindow
         if (await PickOpenAsync(".xmind") is { } path) await OpenFileAsync(path, confirm: false);
     }
 
-    private async Task ImportXmindFileAsync(string path)
+    private async Task<bool> ImportXmindFileAsync(string path)
     {
         var maps = XmindImporter.Import(path);
         var map = maps[0];
@@ -170,7 +177,7 @@ public sealed partial class MainWindow
                 CloseButtonText = "Anuluj",
                 DefaultButton = ContentDialogButton.Primary,
             };
-            if (await ShowDialogAsync(dlg) != ContentDialogResult.Primary) return;
+            if (await ShowDialogAsync(dlg) != ContentDialogResult.Primary) return false;
             map = maps[Math.Max(0, list.SelectedIndex)];
         }
         map.Title ??= Path.GetFileNameWithoutExtension(path);
@@ -178,6 +185,7 @@ public sealed partial class MainWindow
         session.MarkDirty();
         LoadSession(session);
         ShowToast("Zaimportowano mapę z XMind — zapisz ją (Ctrl+S) jako plik .mapo.", InfoBarSeverity.Informational);
+        return true;
     }
 
     /// <summary>Zapis (albo „Zapisz jako”). Zwraca false, gdy użytkownik zrezygnował albo wystąpił błąd.</summary>
@@ -222,10 +230,10 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Tryb wiersza poleceń: MapoMyslacz.exe mapa.mapo --export-png obraz.png [--scale 2].
+    /// Tryb wiersza poleceń: MapoMyslacz.exe mapa.mapo --export-png obraz.png [--scale 2] albo --export-pdf mapa.pdf.
     /// Okno jest wtedy poza ekranem; po zapisie program się kończy (kod 0 = sukces).
     /// </summary>
-    public async Task<int> RunCliExportAsync(string input, string output, double scale)
+    public async Task<int> RunCliExportAsync(string input, string output, double scale, bool pdf = false)
     {
         try
         {
@@ -240,12 +248,13 @@ public sealed partial class MainWindow
                 LoadSession(MapSession.Open(input));
             }
             await Task.Delay(150);
-            await Map.ExportPngAsync(Path.GetFullPath(output), scale);
+            if (pdf) await Map.ExportPdfAsync(Path.GetFullPath(output), _settings.Print.Clone(), MapTitle, AppInfo.FullName);
+            else await Map.ExportPngAsync(Path.GetFullPath(output), scale);
             return 0;
         }
         catch (Exception ex)
         {
-            App.LogError($"Eksport PNG: {input} → {output}", ex);
+            App.LogError($"Eksport {(pdf ? "PDF" : "PNG")}: {input} → {output}", ex);
             return 1;
         }
     }

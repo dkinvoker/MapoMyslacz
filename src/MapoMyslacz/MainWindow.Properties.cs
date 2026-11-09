@@ -129,6 +129,8 @@ public sealed partial class MainWindow
         foreach (var p in Styles.Presets) presets.Children.Add(PresetButton(p));
         Add(presets);
 
+        BuildMarkersSection();
+
         Section("Kształt");
         var shapes = new VariableSizedWrapGrid { Orientation = Orientation.Horizontal, ItemWidth = 37, ItemHeight = 34, MaximumRowsOrColumns = 7 };
         var shapeButtons = new List<(ToggleButton Button, NodeShape Shape)>();
@@ -274,6 +276,31 @@ public sealed partial class MainWindow
                 if (SelNodes() is [{ } n] && n.Note != v) EditNodes(x => x.Note = v);
             });
             Add(note);
+
+            Section("Link");
+            var link = new TextBox { PlaceholderText = "https://… albo inna mapa (.mapo), plik…" };
+            BindText(link, () => SelNodes() is [{ } n] ? n.Link : null, t =>
+            {
+                var v = string.IsNullOrWhiteSpace(t) ? null : t.Trim();
+                if (SelNodes() is [{ } n] && n.Link != v) EditNodes(x => x.Link = v);
+            });
+            link.KeyDown += (_, e) => { if (e.Key == VirtualKey.Enter) Map.Focus(FocusState.Programmatic); };
+            Add(link);
+            var linkRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 4, 0, 0) };
+            var pick = new Button { Content = "Wybierz plik…" };
+            ToolTipService.SetToolTip(pick, "Inna mapa (np. następna sesja kampanii) albo dowolny plik — zapisany względem tej mapy");
+            pick.Click += (_, _) => _ = PickLinkTargetAsync();
+            var open = new Button { Content = "Otwórz" };
+            open.Click += (_, _) => { if (SelNodes() is [{ } n]) _ = OpenLinkAsync(n); };
+            _refreshers.Add(() => open.IsEnabled = SelNodes() is [{ Link.Length: > 0 }]);
+            linkRow.Children.Add(pick);
+            linkRow.Children.Add(open);
+            Add(linkRow);
+            Add(new TextBlock
+            {
+                Text = "Ctrl+klik na kafelku albo klik w niebieski znaczek otwiera link. Mapa .mapo otwiera się w tym oknie — Alt+← wraca.",
+                TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.7, Margin = new Thickness(0, 2, 0, 0),
+            });
         }
 
         Section("Polecenia");
@@ -377,6 +404,91 @@ public sealed partial class MainWindow
     // ================================================================== klocki panelu
 
     private void Add(UIElement e) => PropsHost.Children.Add(e);
+
+    /// <summary>Znaczniki: priorytet i postęp (po jednym), symbole (dowolnie wiele), własne emoji.</summary>
+    private void BuildMarkersSection()
+    {
+        Section("Znaczniki");
+        var grid = new VariableSizedWrapGrid { Orientation = Orientation.Horizontal, ItemWidth = 37, ItemHeight = 36, MaximumRowsOrColumns = 7 };
+        var emojiFont = new Microsoft.UI.Xaml.Media.FontFamily("Segoe UI Emoji");
+
+        void AddToggle(Marker m, UIElement content)
+        {
+            var b = new ToggleButton { Content = content, Width = 34, Height = 32, Padding = new Thickness(0) };
+            ToolTipService.SetToolTip(b, m.Name);
+            b.Click += (_, _) =>
+            {
+                if (_refreshing) return;
+                bool on = !SelNodes().All(n => Markers.Has(n, m.Id));
+                EditNodes(n => Markers.Set(n, m.Id, on));
+                RefreshProperties();
+            };
+            _refreshers.Add(() => b.IsChecked = SelNodes().Count > 0 && SelNodes().All(n => Markers.Has(n, m.Id)));
+            grid.Children.Add(b);
+        }
+
+        foreach (var m in Markers.Priorities)
+        {
+            var color = Markers.PriorityColors[Markers.PriorityValue(m.Id) - 1];
+            AddToggle(m, new Grid
+            {
+                Width = 20,
+                Height = 20,
+                Children =
+                {
+                    new Microsoft.UI.Xaml.Shapes.Ellipse { Fill = Xaml.Brush(color) },
+                    new TextBlock
+                    {
+                        Text = m.Glyph, FontSize = 12, FontWeight = FontWeights.Bold, Foreground = Xaml.Brush(Rgba.White),
+                        HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                    },
+                },
+            });
+        }
+        // przerwa do końca wiersza (7 kolumn): priorytety 1–5 + 2 puste miejsca
+        grid.Children.Add(new Border());
+        grid.Children.Add(new Border());
+        foreach (var m in Markers.Progress)
+        {
+            AddToggle(m, new TextBlock
+            {
+                Text = m.Id == "progress-100" ? "✔" : m.Glyph.TrimEnd('%'),
+                FontSize = m.Id == "progress-100" ? 14 : 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Xaml.Brush(Rgba.Parse("#30A46C", Rgba.Black)),
+            });
+        }
+        grid.Children.Add(new Border());
+        grid.Children.Add(new Border());
+        foreach (var m in Markers.Symbols)
+            AddToggle(m, new TextBlock { Text = m.Glyph, FontFamily = emojiFont, FontSize = 15 });
+        Add(grid);
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 4, 0, 0) };
+        var custom = new TextBox { PlaceholderText = "inne emoji (Win+.)", Width = 150 };
+        var addCustom = new Button { Content = "Dodaj" };
+        void AddEmoji()
+        {
+            var t = custom.Text.Trim();
+            if (t.Length == 0) return;
+            EditNodes(n => Markers.Set(n, t, true));
+            custom.Text = "";
+        }
+        addCustom.Click += (_, _) => AddEmoji();
+        custom.KeyDown += (_, e) =>
+        {
+            if (e.Key != VirtualKey.Enter) return;
+            e.Handled = true;
+            AddEmoji();
+        };
+        var clear = new Button { Content = new FontIcon { Glyph = "", FontSize = 13 } };
+        ToolTipService.SetToolTip(clear, "Usuń wszystkie znaczniki");
+        clear.Click += (_, _) => EditNodes(n => n.Icons = null);
+        row.Children.Add(custom);
+        row.Children.Add(addCustom);
+        row.Children.Add(clear);
+        Add(row);
+    }
 
     /// <summary>
     /// Pole tekstowe panelu: zapis przy opuszczeniu pola, ale tylko gdy tekst różni się od ostatnio pokazanego —

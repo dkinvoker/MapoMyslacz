@@ -41,7 +41,7 @@ internal static partial class Program
             using var process = Process.Start(psi) ?? throw new InvalidOperationException("Nie udało się uruchomić procesu aplikacji.");
             UninstallScript.TryWrite(self);
 
-            // tryb linii poleceń (eksport): czekamy na wynik i zwracamy kod wyjścia; okno — od razu kończymy
+            // tryb linii poleceń (--export-png / --export-pdf): czekamy na wynik i zwracamy kod wyjścia; okno — od razu kończymy
             bool cli = args.Any(a => a.StartsWith("--export-", StringComparison.OrdinalIgnoreCase));
             if (!cli) return 0;
             process.WaitForExit();

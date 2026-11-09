@@ -20,7 +20,38 @@ public static class MapSerializer
     });
 
     /// <summary>Do zapisu na dysk — z wcięciami.</summary>
-    public static string Serialize(MindMap map) => JsonSerializer.Serialize(map, Pretty.MindMap);
+    public static string Serialize(MindMap map) => UnescapeSurrogates(JsonSerializer.Serialize(map, Pretty.MindMap));
+
+    /// <summary>
+    /// Koder JSON zawsze zapisuje emoji jako pary „🗡” — zamieniamy je z powrotem na znaki, żeby plik był
+    /// czytelny. Przechodzimy znak po znaku, więc zapisany w tekście ukośnik („\\u…”) zostaje nietknięty.
+    /// </summary>
+    internal static string UnescapeSurrogates(string json)
+    {
+        if (!json.Contains("\\uD", StringComparison.OrdinalIgnoreCase)) return json;
+        var sb = new StringBuilder(json.Length);
+        for (int i = 0; i < json.Length; i++)
+        {
+            char c = json[i];
+            if (c != '\\' || i + 1 >= json.Length)
+            {
+                sb.Append(c);
+                continue;
+            }
+            if (json[i + 1] == 'u' && i + 11 < json.Length && json[i + 6] == '\\' && json[i + 7] == 'u'
+                && ushort.TryParse(json.AsSpan(i + 2, 4), System.Globalization.NumberStyles.HexNumber, null, out var hi)
+                && ushort.TryParse(json.AsSpan(i + 8, 4), System.Globalization.NumberStyles.HexNumber, null, out var lo)
+                && char.IsHighSurrogate((char)hi) && char.IsLowSurrogate((char)lo))
+            {
+                sb.Append((char)hi).Append((char)lo);
+                i += 11;
+                continue;
+            }
+            sb.Append(c).Append(json[i + 1]); // inna sekwencja (np. \\ albo \") — bez zmian, razem z następnym znakiem
+            i++;
+        }
+        return sb.ToString();
+    }
 
     /// <summary>Zwarta postać — do historii cofania i porównań.</summary>
     public static string SerializeCompact(MindMap map) => JsonSerializer.Serialize(map, Compact.MindMap);

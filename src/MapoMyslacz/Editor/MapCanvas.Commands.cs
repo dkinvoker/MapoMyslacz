@@ -193,6 +193,15 @@ public sealed partial class MapCanvas
         _session.Edit(_ => nodes.ForEach(n => MapOps.EditStyle(n, s => s.Shape = shape == NodeShape.Rounded ? null : shape)));
     }
 
+    /// <summary>Włącza znacznik na wszystkich zaznaczonych kafelkach (albo wyłącza, jeśli wszystkie już go mają).</summary>
+    public void ToggleMarker(string id)
+    {
+        var nodes = _session.SelectedNodeObjects.ToList();
+        if (nodes.Count == 0) return;
+        bool on = !nodes.All(n => Markers.Has(n, id));
+        _session.Edit(_ => nodes.ForEach(n => Markers.Set(n, id, on)));
+    }
+
     public void ToggleBold()
     {
         var nodes = _session.SelectedNodeObjects.ToList();
@@ -366,16 +375,18 @@ public sealed partial class MapCanvas
         _editNodeId = nodeId;
         _editOriginal = node.Text;
         _editIsNew = isNew;
-        var tb = v.BeginEdit(initialText ?? node.Text);
+        _scene.EditingId = nodeId;
+        var tb = CreateNodeEditor(v.Style, initialText ?? node.Text);
         _editor = tb;
+        _editorLayer.Children.Add(tb);
         if (initialText is not null) node.Text = initialText;
-        Relayout(node, v);
+        Relayout(node);
 
         tb.TextChanged += (_, _) =>
         {
             if (_editor != tb || _session.Index.Get(nodeId) is not { } n) return;
             n.Text = tb.Text.Replace("\r\n", "\n").Replace('\r', '\n');
-            Relayout(n, v);
+            Relayout(n);
         };
         tb.PreviewKeyDown += OnEditorKeyDown;
         tb.LostFocus += (_, _) => { if (_editor == tb) CommitEdit(); };
@@ -391,19 +402,72 @@ public sealed partial class MapCanvas
         HintChanged?.Invoke("Enter — zatwierdź · Shift+Enter — nowy wiersz · Tab — zatwierdź i dodaj dziecko · Esc — anuluj");
     }
 
-    /// <summary>Kafelek rośnie razem z tekstem; dziecko trzyma krawędź od strony rodzica (nie „ucieka” na gałąź).</summary>
-    private void Relayout(Node node, NodeVisual v)
+    /// <summary>Pole edycji o wyglądzie tekstu kafelka (przezroczyste, ta sama czcionka) — leży na warstwie nad płótnem.</summary>
+    private static TextBox CreateNodeEditor(ResolvedNodeStyle s, string text)
     {
-        double oldW = v.Width;
+        var tb = new TextBox
+        {
+            Text = text,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(MapScene.FontFamily),
+            FontSize = s.FontSize,
+            FontWeight = s.Bold ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal,
+            FontStyle = s.Italic ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal,
+            TextAlignment = s.Align switch
+            {
+                TextAlign.Left => TextAlignment.Left,
+                TextAlign.Right => TextAlignment.Right,
+                _ => TextAlignment.Center,
+            },
+            IsTextScaleFactorEnabled = false,
+            Padding = new Thickness(0),
+            MinWidth = 0,
+            MinHeight = 0,
+            BorderThickness = new Thickness(0),
+            IsSpellCheckEnabled = true,
+        };
+        var clear = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        var ink = new Microsoft.UI.Xaml.Media.SolidColorBrush(MapScene.C(s.TextColor));
+        tb.Background = clear;
+        tb.Foreground = ink;
+        foreach (var k in new[]
+                 {
+                     "TextControlBackground", "TextControlBackgroundPointerOver", "TextControlBackgroundFocused",
+                     "TextControlBorderBrush", "TextControlBorderBrushPointerOver", "TextControlBorderBrushFocused",
+                 })
+            tb.Resources[k] = clear;
+        foreach (var k in new[] { "TextControlForeground", "TextControlForegroundPointerOver", "TextControlForegroundFocused" })
+            tb.Resources[k] = ink;
+        return tb;
+    }
+
+    /// <summary>
+    /// Kafelek rośnie razem z tekstem (rozmiar liczy Win2D, tak samo jak przy rysowaniu); dziecko trzyma krawędź od
+    /// strony rodzica (nie „ucieka” na gałąź). Pole edycji przesuwa się nad nowe miejsce tekstu.
+    /// </summary>
+    private void Relayout(Node node)
+    {
         var idx = _session.Index;
-        UpdateNode(idx, node, v);
+        double oldW = _nodes.TryGetValue(node.Id, out var before) ? before.Width : 0;
+        if (_scene.Relayout(idx, node) is not { } v) return;
         if (node.Parent is not null && oldW > 0 && Math.Abs(v.Width - oldW) > 0.1)
         {
             int side = MapOps.SideOf(idx, node);
             node.X += side * (v.Width - oldW) / 2;
-            v.SetCenter(node.X, node.Y);
         }
         RefreshGeometry([node.Id]);
+        if (_editor is { } ed)
+        {
+            var o = v.TextOrigin;
+            // szerokość z zapasem na następny znak (TextBox zawija sam — bez zapasu łamałby wiersz przed przeliczeniem)
+            double wrap = v.Style.WrapWidth(node);
+            ed.Width = Math.Min(wrap + 2, Math.Max(v.TextW + v.Style.FontSize, 16));
+            ed.MaxWidth = wrap + 2;
+            double shift = (ed.Width - v.TextW) / 2;
+            XCanvas.SetLeft(ed, o.X - (v.Style.Align == TextAlign.Left ? 0 : v.Style.Align == TextAlign.Right ? 2 * shift : shift));
+            XCanvas.SetTop(ed, o.Y);
+        }
     }
 
     private void OnEditorKeyDown(object sender, KeyRoutedEventArgs e)
@@ -473,9 +537,10 @@ public sealed partial class MapCanvas
     {
         // najpierw fokus na płótno — inaczej po usunięciu pola przeskoczyłby do panelu właściwości
         Focus(FocusState.Programmatic);
-        if (_editNodeId is not null && _nodes.TryGetValue(_editNodeId, out var v)) v.EndEdit();
+        if (_editor is { } ed) _editorLayer.Children.Remove(ed);
         _editor = null;
         _editNodeId = null;
+        _scene.EditingId = null;
         HintChanged?.Invoke(null);
     }
 
@@ -495,7 +560,7 @@ public sealed partial class MapCanvas
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             FontSize = s.FontSize,
-            FontFamily = NodeVisual.Font,
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(MapScene.FontFamily),
             MinWidth = 120,
             MaxWidth = 280,
             TextAlignment = TextAlignment.Center,
@@ -507,7 +572,7 @@ public sealed partial class MapCanvas
         XCanvas.SetTop(tb, lv.Route.LabelAt.Y - tb.DesiredSize.Height / 2);
         _labelEditor = tb;
         _editorFresh = initialText is null;
-        _world.Children.Add(tb);
+        _editorLayer.Children.Add(tb);
         Trace($"label begin '{tb.Text}'");
         tb.PreviewKeyDown += OnLabelEditorKeyDown;
         tb.LostFocus += (_, _) => { if (_labelEditor == tb) CommitLabelEdit(); };
@@ -545,7 +610,7 @@ public sealed partial class MapCanvas
             _labelEditor = null;
             // najpierw fokus na płótno — inaczej po usunięciu pola przeskoczyłby do panelu właściwości
             Focus(FocusState.Programmatic);
-            _world.Children.Remove(tb);
+            _editorLayer.Children.Remove(tb);
             if (!cancel && FindLink(_labelLinkId) is { } link)
             {
                 var text = tb.Text.Replace("\r\n", "\n").Replace('\r', '\n').Trim();

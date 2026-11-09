@@ -19,6 +19,9 @@ public sealed class AppSettings
     /// <summary>Panel właściwości po prawej stronie.</summary>
     public bool ShowProperties { get; set; } = true;
 
+    /// <summary>Ostatnie ustawienia druku/PDF (zapamiętywane między uruchomieniami).</summary>
+    public Core.Export.PrintOptions Print { get; set; } = new();
+
     public int WindowWidth { get; set; }
     public int WindowHeight { get; set; }
     public bool WindowMaximized { get; set; }

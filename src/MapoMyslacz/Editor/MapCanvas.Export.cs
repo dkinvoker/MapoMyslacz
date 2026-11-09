@@ -1,100 +1,139 @@
+using System.Numerics;
+using MapoMyslacz.Core.Export;
 using MapoMyslacz.Core.Model;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
-using Windows.Graphics.Imaging;
-using Windows.Storage.Streams;
-using XCanvas = Microsoft.UI.Xaml.Controls.Canvas;
+using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Text;
+using Windows.Foundation;
+using static MapoMyslacz.Editor.MapScene;
 
 namespace MapoMyslacz.Editor;
 
-/// <summary>Eksport całej mapy do PNG (niezależnie od tego, co widać w oknie).</summary>
+/// <summary>Eksport: PNG, strony do PDF i do druku. Rysuje ta sama scena Win2D co na ekranie (bez zaznaczeń i uchwytów).</summary>
 public sealed partial class MapCanvas
 {
-    /// <summary>
-    /// Buduje osobną kopię mapy (bez zaznaczeń i uchwytów) w ukrytym miejscu drzewa XAML, renderuje ją
-    /// <see cref="RenderTargetBitmap"/> i zapisuje jako PNG. <paramref name="scale"/> 2 = ostry wydruk/ekran HiDPI.
-    /// </summary>
+    /// <summary>Granice mapy do eksportu (null = pusta mapa).</summary>
+    public Box? ExportBounds
+    {
+        get
+        {
+            CommitEdit();
+            return ContentBounds();
+        }
+    }
+
+    /// <summary>Cała mapa jako PNG. <paramref name="scale"/> 2 = ostro także na ekranach HiDPI i w druku.</summary>
     public async Task ExportPngAsync(string path, double scale = 2, double margin = 40)
     {
-        CommitEdit();
-        if (ContentBounds() is not { } content) throw new InvalidOperationException("Mapa jest pusta — nie ma czego eksportować.");
+        if (ExportBounds is not { } content) throw new InvalidOperationException("Mapa jest pusta — nie ma czego eksportować.");
         var b = content.Inflate(margin);
-        // ograniczenie rozmiaru bitmapy (pamięć i limit tekstur karty graficznej)
-        scale = Math.Min(scale, 8000 / Math.Max(b.Width, b.Height));
-        int pw = (int)Math.Ceiling(b.Width * scale), ph = (int)Math.Ceiling(b.Height * scale);
-
-        var root = new XCanvas { Width = pw, Height = ph, Background = Xaml.Brush(_canvasColor) };
-        var content2 = new XCanvas
+        var dev = SharedDevice;
+        double maxPx = dev.MaximumBitmapSizeInPixels * 0.98;
+        scale = Math.Min(scale, maxPx / Math.Max(b.Width, b.Height));
+        using var rt = new CanvasRenderTarget(dev, (float)b.Width, (float)b.Height, (float)(96 * scale));
+        using (var ds = rt.CreateDrawingSession())
         {
-            RenderTransform = new CompositeTransform { ScaleX = scale, ScaleY = scale, TranslateX = -b.X * scale, TranslateY = -b.Y * scale },
-        };
-        var branchLayer = new XCanvas();
-        var linkLayer = new XCanvas();
-        var nodeLayer = new XCanvas();
-        content2.Children.Add(branchLayer);
-        content2.Children.Add(linkLayer);
-        content2.Children.Add(nodeLayer);
-        root.Children.Add(content2);
-
-        var idx = _session.Index;
-        var copies = new Dictionary<string, NodeVisual>();
-        foreach (var n in _session.Map.Nodes)
-        {
-            if (!_nodes.ContainsKey(n.Id)) continue;
-            var v = new NodeVisual(n.Id);
-            nodeLayer.Children.Add(v.Root);
-            UpdateNode(idx, n, v);
-            copies[n.Id] = v;
+            ds.Clear(C(_canvasColor));
+            ds.TextAntialiasing = CanvasTextAntialiasing.Grayscale;
+            ds.Transform = Matrix3x2.CreateTranslation((float)-b.X, (float)-b.Y);
+            _scene.Draw(ds, b, scale);
         }
-        foreach (var n in _session.Map.Nodes)
+        await rt.SaveAsync(path, CanvasBitmapFileFormat.Png);
+    }
+
+    /// <summary>Scena do druku: kolor tła z ustawień (białe tło zmienia też automatyczne kolory tekstu).</summary>
+    internal MapScene CreatePrintScene(PrintOptions o)
+    {
+        var scene = new MapScene();
+        scene.Build(_session.Map, _session.Index, o.WhiteBackground ? Rgba.White : _canvasColor);
+        return scene;
+    }
+
+    /// <summary>
+    /// Renderuje całą kartkę (marginesy, nagłówek, fragment mapy) do bitmapy BGRA w zadanej rozdzielczości.
+    /// Ten sam obraz trafia do PDF i na drukarkę.
+    /// </summary>
+    internal static (byte[] Bgra, int Width, int Height) RenderPage(MapScene scene, PageTile page, PrintPlan plan, PrintOptions o,
+        string title, int pageNumber, int pageCount, double dpi)
+    {
+        const double dipPerMm = 96 / 25.4;
+        var dev = SharedDevice;
+        float wDip = (float)(page.PageWidthMm * dipPerMm), hDip = (float)(page.PageHeightMm * dipPerMm);
+        double maxPx = dev.MaximumBitmapSizeInPixels * 0.98;
+        dpi = Math.Min(dpi, Math.Min(maxPx / (wDip / 96), maxPx / (hDip / 96)));
+        using var rt = new CanvasRenderTarget(dev, wDip, hDip, (float)dpi);
+        var bg = scene.Canvas;
+        using (var ds = rt.CreateDrawingSession())
         {
-            if (n.Parent is null || !copies.TryGetValue(n.Id, out var cv) || !copies.TryGetValue(n.Parent, out var pv)) continue;
-            branchLayer.Children.Add(new Microsoft.UI.Xaml.Shapes.Path
+            ds.Clear(o.WhiteBackground ? Microsoft.UI.Colors.White : C(bg));
+            ds.TextAntialiasing = CanvasTextAntialiasing.Grayscale;
+            var ink = bg.PrefersLightText ? Rgba.Parse("#E4E1EC", Rgba.White) : Rgba.Parse("#3A3744", Rgba.Black);
+
+            if (o.Header)
             {
-                Data = Xaml.Geometry([LinkRouting.Branch(pv.Outline, cv.Outline)]),
-                Stroke = Xaml.Brush(cv.Style!.BranchColor),
-                StrokeThickness = idx.Get(n.Parent)?.Parent is null ? 3 : 2,
-                StrokeStartLineCap = PenLineCap.Round,
-                StrokeEndLineCap = PenLineCap.Round,
-            });
-        }
-        foreach (var l in _session.Map.Links)
-        {
-            if (!copies.TryGetValue(l.From, out var f) || !copies.TryGetValue(l.To, out var t)) continue;
-            var lv = new LinkVisual(l.Id);
-            lv.AddTo(linkLayer);
-            var s = Styles.Resolve(l.Style);
-            lv.Update(l, s, LinkRouting.Route(l, s.Curve, f.Outline, t.Outline), _canvasColor);
-        }
-
-        _exportHost.Children.Add(root);
-        try
-        {
-            root.UpdateLayout();
-            var rtb = new RenderTargetBitmap();
-            await rtb.RenderAsync(root, pw, ph);
-            var pixels = await rtb.GetPixelsAsync();
-            var bytes = new byte[pixels.Length];
-            DataReader.FromBuffer(pixels).ReadBytes(bytes);
-
-            using var ms = new InMemoryRandomAccessStream();
-            var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, ms);
-            encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
-                (uint)rtb.PixelWidth, (uint)rtb.PixelHeight, 96 * scale, 96 * scale, bytes);
-            await encoder.FlushAsync();
-
-            ms.Seek(0);
-            var png = new byte[ms.Size];
-            using (var reader = new DataReader(ms.GetInputStreamAt(0)))
-            {
-                await reader.LoadAsync((uint)ms.Size);
-                reader.ReadBytes(png);
+                double m = Math.Clamp(o.MarginMm, 0, 100) * dipPerMm;
+                var headerBox = new Rect(m, m, wDip - 2 * m, PrintLayout.HeaderMm * dipPerMm * 0.8);
+                using var tf = new CanvasTextFormat
+                {
+                    FontFamily = MapScene.FontFamily,
+                    FontSize = 15,
+                    FontWeight = new Windows.UI.Text.FontWeight { Weight = 600 },
+                    VerticalAlignment = CanvasVerticalAlignment.Center,
+                    WordWrapping = CanvasWordWrapping.NoWrap,
+                    TrimmingSign = CanvasTrimmingSign.Ellipsis,
+                    TrimmingGranularity = CanvasTextTrimmingGranularity.Character,
+                };
+                ds.DrawText(title, headerBox, C(ink), tf);
+                if (pageCount > 1)
+                {
+                    using var pf = new CanvasTextFormat
+                    {
+                        FontFamily = MapScene.FontFamily,
+                        FontSize = 11,
+                        HorizontalAlignment = CanvasHorizontalAlignment.Right,
+                        VerticalAlignment = CanvasVerticalAlignment.Center,
+                    };
+                    ds.DrawText($"strona {pageNumber}/{pageCount} (wiersz {page.Row + 1}, kolumna {page.Column + 1})", headerBox, C(ink.WithAlpha(170)), pf);
+                }
+                float lineY = (float)(headerBox.Bottom + 2);
+                ds.DrawLine((float)m, lineY, (float)(wDip - m), lineY, C(ink.WithAlpha(60)), 0.75f);
             }
-            await File.WriteAllBytesAsync(path, png);
+
+            // fragment mapy w swoim miejscu na kartce, przycięty do niego
+            var place = page.PlacementMm;
+            var clip = new Rect(place.X * dipPerMm, place.Y * dipPerMm, place.Width * dipPerMm, place.Height * dipPerMm);
+            double s = plan.MmPerUnit * dipPerMm; // jednostki mapy → DIP kartki
+            using (ds.CreateLayer(1f, clip))
+            {
+                ds.Transform = Matrix3x2.CreateTranslation((float)-page.World.X, (float)-page.World.Y)
+                               * Matrix3x2.CreateScale((float)s)
+                               * Matrix3x2.CreateTranslation((float)clip.X, (float)clip.Y);
+                scene.Draw(ds, page.World.Inflate(20), s * dpi / 96);
+            }
         }
-        finally
+        var bytes = rt.GetPixelBytes();
+        return (bytes, (int)rt.SizeInPixels.Width, (int)rt.SizeInPixels.Height);
+    }
+
+    /// <summary>Zapisuje mapę jako PDF według ustawień. Zwraca liczbę stron.</summary>
+    public async Task<int> ExportPdfAsync(string path, PrintOptions o, string title, string producer)
+    {
+        if (ExportBounds is not { } content) throw new InvalidOperationException("Mapa jest pusta — nie ma czego eksportować.");
+        var (pw, ph) = PrintLayout.PaperMm(o.Paper);
+        var plan = PrintLayout.Plan(content.Inflate(4), pw, ph, o);
+        using var scene = CreatePrintScene(o);
+        var pages = new List<PdfPage>();
+        int n = 0;
+        foreach (var page in plan.Pages)
         {
-            _exportHost.Children.Remove(root);
+            var (bgra, w, h) = RenderPage(scene, page, plan, o, title, ++n, plan.Pages.Count, o.Dpi);
+            pages.Add(new PdfPage(page.PageWidthMm, page.PageHeightMm, w, h, bgra));
         }
+        await Task.Run(() =>
+        {
+            var temp = path + ".tmp";
+            using (var fs = File.Create(temp)) PdfWriter.Write(fs, pages, title, producer);
+            File.Move(temp, path, overwrite: true);
+        });
+        return pages.Count;
     }
 }

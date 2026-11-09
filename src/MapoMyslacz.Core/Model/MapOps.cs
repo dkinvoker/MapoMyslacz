@@ -230,7 +230,7 @@ public static class MapOps
     public static Node CloneNode(Node n, string? parent) => new()
     {
         Id = n.Id, Text = n.Text, X = n.X, Y = n.Y, Parent = parent, Style = n.Style?.Clone(),
-        Note = n.Note, Collapsed = n.Collapsed, Width = n.Width,
+        Note = n.Note, Collapsed = n.Collapsed, Width = n.Width, Icons = n.Icons?.ToList(), Link = n.Link,
     };
 
     public static Link CloneLink(Link l) => new()

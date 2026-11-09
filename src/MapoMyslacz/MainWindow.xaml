@@ -52,6 +52,10 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="BackButton" Style="{StaticResource ToolButton}" Click="Back_Click" Visibility="Collapsed"
+                        ToolTipService.ToolTip="Wróć do poprzedniej mapy (Alt+←)">
+                    <FontIcon Glyph="&#xE72B;" Style="{StaticResource ToolIcon}" />
+                </Button>
                 <DropDownButton x:Name="FileButton" Style="{StaticResource ToolDropDown}" ToolTipService.ToolTip="Plik">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE8B7;" Style="{StaticResource ToolIcon}" />
@@ -81,6 +85,12 @@
                             </MenuFlyoutItem>
                             <MenuFlyoutItem Text="Eksportuj obraz PNG…" Click="ExportPng_Click" KeyboardAcceleratorTextOverride="Ctrl+E">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEB9F;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Eksportuj PDF…" Click="ExportPdf_Click" KeyboardAcceleratorTextOverride="Ctrl+Shift+E">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEA90;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Drukuj…" Click="Print_Click" KeyboardAcceleratorTextOverride="Ctrl+P">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE749;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <MenuFlyoutSeparator />
                             <MenuFlyoutItem Text="Zamknij" Click="Exit_Click" KeyboardAcceleratorTextOverride="Alt+F4">
@@ -135,6 +145,26 @@
                         <TextBlock Text="Uporządkuj" />
                     </StackPanel>
                 </Button>
+                <AppBarSeparator />
+                <DropDownButton Style="{StaticResource ToolDropDown}" ToolTipService.ToolTip="Druk i eksport">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE749;" Style="{StaticResource ToolIcon}" />
+                        <TextBlock Text="Drukuj" />
+                    </StackPanel>
+                    <DropDownButton.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                            <MenuFlyoutItem Text="Drukuj…" Click="Print_Click" KeyboardAcceleratorTextOverride="Ctrl+P">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE749;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Zapisz jako PDF…" Click="ExportPdf_Click" KeyboardAcceleratorTextOverride="Ctrl+Shift+E">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEA90;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Zapisz jako obraz PNG…" Click="ExportPng_Click" KeyboardAcceleratorTextOverride="Ctrl+E">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEB9F;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                        </MenuFlyout>
+                    </DropDownButton.Flyout>
+                </DropDownButton>
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
@@ -188,21 +218,29 @@
                 <editor:MapCanvas x:Name="Map" />
             </Border>
 
-            <InfoBar x:Name="UpdateBar" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="12" MaxWidth="680"
-                     IsOpen="False" Severity="Informational" IsClosable="True">
-                <InfoBar.ActionButton>
-                    <Button x:Name="UpdateActionButton" Content="Zaktualizuj" Click="UpdateAction_Click" />
-                </InfoBar.ActionButton>
-                <InfoBar.Content>
-                    <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,0,8">
-                        <HyperlinkButton x:Name="UpdateNotesLink" Content="Co nowego?" Click="UpdateNotes_Click" />
-                        <HyperlinkButton x:Name="UpdateSkipLink" Content="Pomiń tę wersję" Click="UpdateSkip_Click" />
-                    </StackPanel>
-                </InfoBar.Content>
-            </InfoBar>
+            <!-- komunikaty na nieprzezroczystym tle (półprzezroczyste InfoBary były niewidoczne na białym płótnie
+                 w ciemnym motywie: biały tekst na bieli) -->
+            <Border x:Name="UpdateHost" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="12" MaxWidth="680"
+                    Visibility="Collapsed" CornerRadius="8" BorderThickness="1"
+                    Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                <InfoBar x:Name="UpdateBar" IsOpen="False" Severity="Informational" IsClosable="True">
+                    <InfoBar.ActionButton>
+                        <Button x:Name="UpdateActionButton" Content="Zaktualizuj" Click="UpdateAction_Click" />
+                    </InfoBar.ActionButton>
+                    <InfoBar.Content>
+                        <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,0,8">
+                            <HyperlinkButton x:Name="UpdateNotesLink" Content="Co nowego?" Click="UpdateNotes_Click" />
+                            <HyperlinkButton x:Name="UpdateSkipLink" Content="Pomiń tę wersję" Click="UpdateSkip_Click" />
+                        </StackPanel>
+                    </InfoBar.Content>
+                </InfoBar>
+            </Border>
 
-            <InfoBar x:Name="Toast" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="16" MaxWidth="640"
-                     IsOpen="False" IsClosable="True" Severity="Success" />
+            <Border x:Name="ToastHost" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="16" MaxWidth="640"
+                    Visibility="Collapsed" CornerRadius="8" BorderThickness="1"
+                    Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                <InfoBar x:Name="Toast" IsOpen="False" IsClosable="True" Severity="Success" />
+            </Border>
 
             <Border x:Name="PropsPanel" Grid.Column="1" Width="300" BorderThickness="1,1,0,0"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"

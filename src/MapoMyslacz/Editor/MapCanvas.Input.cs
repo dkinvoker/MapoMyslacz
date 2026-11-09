@@ -30,6 +30,7 @@ public sealed partial class MapCanvas
     private Cubic? _connectPreview;
     private string? _dropTarget;
     private HashSet<string> _marqueeBase = [];
+    private string? _hoverHint;
     private bool _spaceDown;
     private string? _connectModeFrom;
     private Vec _lastPointerWorld;
@@ -60,7 +61,7 @@ public sealed partial class MapCanvas
 
     private static readonly string? TraceFile = Environment.GetEnvironmentVariable("MAPOMYSLACZ_TRACE");
 
-    private static void Trace(string msg)
+    internal static void Trace(string msg)
     {
         if (TraceFile is not null) File.AppendAllText(TraceFile, $"{DateTime.Now:HH:mm:ss.fff} {msg}{Environment.NewLine}");
     }
@@ -137,6 +138,15 @@ public sealed partial class MapCanvas
         {
             case HitKind.Badge:
                 _session.Edit(m => { if (_session.Index.Get(hit.Id) is { } n) n.Collapsed = false; });
+                e.Handled = true;
+                return;
+            case HitKind.LinkMark when _session.Index.Get(hit.Id) is { } linked:
+                OpenLinkRequested?.Invoke(linked);
+                e.Handled = true;
+                return;
+            case HitKind.Node when _pressCtrl && !_pressShift && _session.Index.Get(hit.Id) is { Link.Length: > 0 } withLink:
+                // Ctrl+klik na kafelku z linkiem otwiera link (zamiast dokładać do zaznaczenia)
+                OpenLinkRequested?.Invoke(withLink);
                 e.Handled = true;
                 return;
             case HitKind.Node:
@@ -265,8 +275,8 @@ public sealed partial class MapCanvas
                 break;
             case HitKind.None when _pressShift || _pressCtrl:
                 _drag = DragMode.Marquee;
-                _marqueeBase = _pressShift || _pressCtrl ? [.. _session.SelectedNodes] : [];
-                _marquee.Visibility = Visibility.Visible;
+                _marqueeBase = [.. _session.SelectedNodes];
+                _marqueeHits.Clear();
                 UpdateMarquee(_pressScreen);
                 break;
             case HitKind.None:
@@ -280,17 +290,27 @@ public sealed partial class MapCanvas
         }
     }
 
+    /// <summary>
+    /// Zaznaczanie prostokątem: w trakcie przeciągania tylko podgląd na płótnie (bez zmiany zaznaczenia sesji, więc
+    /// panel właściwości nie przebudowuje się przy każdym ruchu myszy); zaznaczenie trafia do sesji po puszczeniu.
+    /// </summary>
     private void UpdateMarquee(Point pos)
     {
-        double x = Math.Min(pos.X, _pressScreen.X), y = Math.Min(pos.Y, _pressScreen.Y);
-        double w = Math.Abs(pos.X - _pressScreen.X), h = Math.Abs(pos.Y - _pressScreen.Y);
-        _marquee.Margin = new Thickness(x, y, 0, 0);
-        _marquee.Width = w;
-        _marquee.Height = h;
-        var box = Box.FromCorners(ToWorld(new Point(x, y)), ToWorld(new Point(x + w, y + h)));
-        var hits = _nodes.Values.Where(v => box.Intersects(v.Bounds)).Select(v => v.Id);
-        _session.Select(_marqueeBase.Concat(hits));
+        _marqueeEnd = pos;
+        var r = MarqueeRect;
+        var box = Box.FromCorners(ToWorld(new Point(r.X, r.Y)), ToWorld(new Point(r.X + r.Width, r.Y + r.Height)));
+        _marqueeHits.Clear();
+        foreach (var v in _scene.NodeOrder)
+            if (box.Intersects(v.Bounds)) _marqueeHits.Add(v.Id);
+        _canvas.Invalidate();
     }
+
+    private Point _marqueeEnd;
+    private readonly HashSet<string> _marqueeHits = [];
+
+    private Rect MarqueeRect => new(
+        Math.Min(_marqueeEnd.X, _pressScreen.X), Math.Min(_marqueeEnd.Y, _pressScreen.Y),
+        Math.Abs(_marqueeEnd.X - _pressScreen.X), Math.Abs(_marqueeEnd.Y - _pressScreen.Y));
 
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
@@ -322,7 +342,8 @@ public sealed partial class MapCanvas
                 FinishConnect(_lastPointerWorld);
                 break;
             case DragMode.Marquee:
-                _marquee.Visibility = Visibility.Collapsed;
+                _session.Select(_marqueeBase.Concat(_marqueeHits));
+                _marqueeHits.Clear();
                 break;
         }
         _connectPreview = null;
@@ -337,7 +358,7 @@ public sealed partial class MapCanvas
     {
         if (_drag is DragMode.MoveNodes or DragMode.BendLink or DragMode.MoveHandle) _session.CancelBatch();
         _drag = DragMode.None;
-        _marquee.Visibility = Visibility.Collapsed;
+        _marqueeHits.Clear();
         _connectPreview = null;
         _dropTarget = null;
         ExitConnectMode();
@@ -394,11 +415,22 @@ public sealed partial class MapCanvas
             return;
         }
         var hit = HitTest(w);
+        bool ctrl = mods.HasFlag(VirtualKeyModifiers.Control);
+        var linked = hit.Kind is HitKind.Node or HitKind.LinkMark ? _session.Index.Get(hit.Id)?.Link : null;
+        string? hint = linked is { Length: > 0 }
+            ? $"Link: {LinkTargets.Describe(linked)} — {(hit.Kind == HitKind.LinkMark ? "kliknij" : "Ctrl+klik")}, żeby otworzyć"
+            : null;
+        if (hint != _hoverHint)
+        {
+            _hoverHint = hint;
+            HintChanged?.Invoke(hint);
+        }
         SetCursor(hit.Kind switch
         {
+            HitKind.Node when ctrl && linked is { Length: > 0 } => HandCursor,
             HitKind.Node => MoveCursor,
             HitKind.Link when _session.SelectedLinks.Contains(hit.Id!) => MoveCursor,
-            HitKind.Link or HitKind.Badge or HitKind.LinkHandle1 or HitKind.LinkHandle2 or HitKind.ConnectHandle => HandCursor,
+            HitKind.Link or HitKind.Badge or HitKind.LinkMark or HitKind.LinkHandle1 or HitKind.LinkHandle2 or HitKind.ConnectHandle => HandCursor,
             _ when mods.HasFlag(VirtualKeyModifiers.Shift) || mods.HasFlag(VirtualKeyModifiers.Control) => CrossCursor,
             _ => HandCursors.Get(grab: false) ?? ArrowCursor,
         });
@@ -466,6 +498,8 @@ public sealed partial class MapCanvas
         }
         if (!ReferenceEquals(e.OriginalSource, this)) return;
         bool ctrl = IsDown(VirtualKey.Control), shift = IsDown(VirtualKey.Shift), alt = IsDown(VirtualKey.Menu);
+        // sam Alt (np. Alt+← — powrót do poprzedniej mapy, Alt+F4) należy do okna, nie do płótna
+        if (alt && !ctrl) return;
         // AltGr = Ctrl+Alt — to polskie litery (ą, ć, ę…), nie skróty
         bool cmd = ctrl && !alt;
         e.Handled = true;
@@ -667,6 +701,12 @@ public sealed partial class MapCanvas
         bool allCollapsed = anyChildren && sel.Where(n => idx.ChildrenOf(n.Id).Count > 0).All(n => n.Collapsed);
 
         var menu = new MenuFlyout();
+        if (single && sel[0].Link is { Length: > 0 } link)
+        {
+            var target = sel[0];
+            menu.Items.Add(Item($"Otwórz link: {LinkTargets.Describe(link)}", "", () => OpenLinkRequested?.Invoke(target), "Ctrl+klik"));
+            menu.Items.Add(new MenuFlyoutSeparator());
+        }
         menu.Items.Add(Item("Edytuj tekst", "", EditSelected, "F2", single));
         menu.Items.Add(Item("Dodaj dziecko", "", AddChild, "Tab", single));
         menu.Items.Add(Item("Dodaj rodzeństwo", "", AddSibling, "Enter", single));
@@ -693,6 +733,25 @@ public sealed partial class MapCanvas
             shapes.Items.Add(it);
         }
         menu.Items.Add(shapes);
+
+        var markers = new MenuFlyoutSubItem { Text = "Znaczniki", Icon = new FontIcon { Glyph = "" } };
+        foreach (var group in new[] { Markers.Priorities, Markers.Progress, Markers.Symbols.Take(12).ToList() })
+        {
+            foreach (var m in group)
+            {
+                var marker = m;
+                var it = new ToggleMenuFlyoutItem
+                {
+                    Text = marker.Group == MarkerGroup.Symbol ? $"{marker.Glyph}  {marker.Name}" : marker.Name,
+                    IsChecked = sel.Count > 0 && sel.All(n => Markers.Has(n, marker.Id)),
+                };
+                it.Click += (_, _) => ToggleMarker(marker.Id);
+                markers.Items.Add(it);
+            }
+            markers.Items.Add(new MenuFlyoutSeparator());
+        }
+        markers.Items.Add(Item("Usuń znaczniki", "", () => _session.Edit(_ => sel.ForEach(n => n.Icons = null))));
+        menu.Items.Add(markers);
         menu.Items.Add(new MenuFlyoutSeparator());
 
         if (anyChildren)

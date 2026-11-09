@@ -34,7 +34,8 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         var cli = Environment.GetCommandLineArgs().Skip(1).ToArray();
-        int exportIndex = Array.FindIndex(cli, a => string.Equals(a, "--export-png", StringComparison.OrdinalIgnoreCase));
+        int exportIndex = Array.FindIndex(cli, a => string.Equals(a, "--export-png", StringComparison.OrdinalIgnoreCase)
+                                                    || string.Equals(a, "--export-pdf", StringComparison.OrdinalIgnoreCase));
         if (exportIndex >= 0)
         {
             _ = RunCliExportAsync(cli, exportIndex);
@@ -51,7 +52,8 @@ public partial class App : Application
 
     /// <summary>
     /// Eksport bez obsługi okna:  MapoMyslacz.exe mapa.mapo --export-png obraz.png [--scale 2]
-    /// (działa też z plikiem .xmind). Okno powstaje poza ekranem, bo XAML potrzebuje go do renderowania.
+    /// albo  --export-pdf mapa.pdf  (ostatnie ustawienia druku/PDF; domyślnie A4, cała mapa na stronie).
+    /// Działa też z plikiem .xmind. Okno powstaje poza ekranem.
     /// </summary>
     private async Task RunCliExportAsync(string[] cli, int exportIndex)
     {
@@ -79,7 +81,8 @@ public partial class App : Application
                 _window.AppWindow.IsShownInSwitchers = false;
                 _window.AppWindow.Move(new PointInt32(-32000, -32000));
                 _window.Activate();
-                code = await _window.RunCliExportAsync(input, output, scale);
+                bool pdf = string.Equals(cli[exportIndex], "--export-pdf", StringComparison.OrdinalIgnoreCase);
+                code = await _window.RunCliExportAsync(input, output, scale, pdf);
             }
         }
         catch (Exception ex)

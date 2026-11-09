@@ -62,6 +62,14 @@ public sealed class Node
 
     /// <summary>Własna maksymalna szerokość tekstu (zawijanie). Brak = zależna od rozmiaru czcionki.</summary>
     public double? Width { get; set; }
+
+    /// <summary>
+    /// Znaczniki przed tekstem: id z <see cref="Markers"/> (np. „priority-1”, „progress-50”) albo dowolne emoji („🏰”).
+    /// </summary>
+    public List<string>? Icons { get; set; }
+
+    /// <summary>Link: adres internetowy albo ścieżka do pliku (np. innej mapy .mapo — względna wobec tej mapy). Ctrl+klik otwiera.</summary>
+    public string? Link { get; set; }
 }
 
 /// <summary>

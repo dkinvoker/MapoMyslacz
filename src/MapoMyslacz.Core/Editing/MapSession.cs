@@ -168,7 +168,11 @@ public sealed class MapSession
             SelectedLinks.Clear();
         }
         foreach (var n in nodes) if (Index.Contains(n)) SelectedNodes.Add(n);
-        foreach (var l in links ?? []) if (Map.Links.Any(x => x.Id == l)) SelectedLinks.Add(l);
+        if (links is not null)
+        {
+            var existing = Map.Links.Select(x => x.Id).ToHashSet();
+            foreach (var l in links) if (existing.Contains(l)) SelectedLinks.Add(l);
+        }
         SelectionChanged?.Invoke();
     }
 

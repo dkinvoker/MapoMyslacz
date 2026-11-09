@@ -4,7 +4,7 @@ Program do map myśli: kafelki, gałęzie i strzałki z podpisami na nieskończo
 do **Native AOT** (okno pojawia się w ułamku sekundy) i rozdawany jako **jeden plik `.exe`** — bez instalatora,
 z automatycznymi aktualizacjami z wydań na GitHubie.
 
-**Wersja 1.0** — co się zmieniało, opisuje [CHANGELOG.md](CHANGELOG.md), a pomysły na dalszy rozwój
+**Wersja 1.2** — co się zmieniało, opisuje [CHANGELOG.md](CHANGELOG.md), a pomysły na dalszy rozwój
 [Developement.md](Developement.md).
 
 ![Przykładowa mapa](docs/przewodnik.png)
@@ -21,8 +21,13 @@ z automatycznymi aktualizacjami z wydań na GitHubie.
   **Uporządkuj** — automatyczny układ (temat główny rozkłada gałęzie na obie strony).
 - **Strzałki** między dowolnymi kafelkami: podpis, kolor, grubość, linia ciągła/przerywana/kropkowana, groty na
   początku i/lub końcu, krzywa albo prosta. Wygina się je przeciągając samą strzałkę albo jej uchwyty.
-- **Nieskończone płótno**: przesuwanie przeciąganiem pustego miejsca, powiększanie kółkiem (10–400%),
-  „pokaż całą mapę”, zaznaczanie prostokątem z Shift/Ctrl.
+- **Znaczniki**: priorytet 1–5, postęp 0–100%, symbole (✅ ⚠️ ❓ ⭐ 🗡️ 🏰 🐉 …) i dowolne emoji przed tekstem kafelka.
+- **Linki w kafelkach**: strona internetowa albo plik — także **inna mapa** (ścieżka względna, więc mapy łączą się
+  w „kampanię”). Ctrl+klik albo klik w niebieski znaczek otwiera link, Alt+← wraca do poprzedniej mapy.
+- **Nieskończone płótno** rysowane przez **Win2D** (szybkie także przy tysiącach kafelków): przesuwanie
+  przeciąganiem pustego miejsca, powiększanie kółkiem (5–400%), „pokaż całą mapę”, zaznaczanie prostokątem z Shift/Ctrl.
+- **Druk i PDF** z podglądem: cała mapa dopasowana do kartki A4 (A3, A5, Letter) albo podział na strony w skali
+  (plakat), orientacja, marginesy, tytuł na górze, białe tło, 150–600 dpi.
 - Cofnij/ponów (wszystko, także przeciąganie i zmiany stylu), kopiuj/wytnij/wklej/duplikuj — **wklejony tekst
   z wcięciami** (konspekt z Notatnika, lista z Worda, nagłówki Markdown) zamienia się w gałęzie, a skopiowane
   kafelki trafiają też do innych programów jako konspekt.
@@ -44,7 +49,8 @@ z automatycznymi aktualizacjami z wydań na GitHubie.
 | dwuklik | na kafelku — edycja tekstu, na strzałce — podpis, na pustym miejscu — nowy kafelek |
 | kółko **„+”** przy zaznaczonym kafelku | klik — dziecko; przeciągnij na kafelek — **strzałka**; na puste miejsce — dziecko tam |
 | przeciągnij zaznaczoną strzałkę | wyginanie (albo białe uchwyty krzywizny) |
-| prawy przycisk | menu z poleceniami |
+| Ctrl+klik na kafelku z linkiem, klik w niebieski znaczek | otwiera link (strona, plik, inna mapa) |
+| prawy przycisk | menu z poleceniami (także znaczniki i „Otwórz link”) |
 
 | Klawisz | Działanie |
 |---|---|
@@ -58,11 +64,13 @@ z automatycznymi aktualizacjami z wydań na GitHubie.
 | Ctrl+R, Ctrl+/ | uporządkuj gałęzie, zwiń/rozwiń |
 | Ctrl+B, Ctrl+I | pogrubienie, kursywa |
 | Ctrl+0, Ctrl+1, Ctrl+plus/minus | cała mapa, 100%, powiększenie |
-| Ctrl+N / O / S / Shift+S / E, F1 | nowa / otwórz / zapisz / zapisz jako / eksport PNG, pomoc |
+| Ctrl+N / O / S / Shift+S | nowa / otwórz / zapisz / zapisz jako |
+| Ctrl+P, Ctrl+Shift+E, Ctrl+E | drukuj, PDF, obraz PNG |
+| Alt+←, F1 | powrót do poprzedniej mapy (po przejściu linkiem), pomoc |
 
 ## Instalacja
 
-Pobierz `MapoMyslacz.exe` ze strony [wydań](https://github.com/dkinvoker/MapoMyslacz/releases)
+Pobierz `MapoMyslacz.exe` ze strony [wydań](https://github.com/dkinvoker/MapoMy-lacz/releases)
 (komputery z procesorem ARM: `MapoMyslacz-arm64.exe`), połóż gdzie chcesz i uruchom. To wszystko.
 
 Przy pierwszym uruchomieniu (trwa to sekundę–dwie) program:
@@ -85,14 +93,16 @@ Jeśli skrypt zniknął, uruchom program raz — pojawi się ponownie.
 ## Aktualizacje
 
 Kilka sekund po starcie (najwyżej raz na dobę) program pyta GitHuba o najnowsze wydanie
-(`api.github.com/repos/dkinvoker/MapoMyslacz/releases/latest` — bez żadnych danych o użytkowniku, tylko nazwa
+(`api.github.com/repos/dkinvoker/MapoMy-lacz/releases/latest` — bez żadnych danych o użytkowniku, tylko nazwa
 i wersja programu w nagłówku). Gdy jest nowsza wersja, u góry okna pojawia się pasek: *Zaktualizuj*, *Co nowego?*
 (opis wydania), *Pomiń tę wersję*. „Zaktualizuj” pobiera nowy exe, sprawdza jego **sumę SHA-256** podaną przez
 GitHub (inna suma = przerwanie bez żadnych zmian), podmienia plik i po „Uruchom ponownie” startuje nowa wersja
 z otwartą mapą. Automatyczne sprawdzanie można wyłączyć w menu **?**, tam też jest „Sprawdź aktualizacje”.
 
 Wymagania: repozytorium z wydaniami musi być **publiczne** (API GitHuba bez logowania nie widzi prywatnych).
-Nazwa repozytorium jest w `src/MapoMyslacz.Core/Updates/UpdateLogic.cs` (`Repository`).
+Nazwa repozytorium jest w `src/MapoMyslacz.Core/Updates/UpdateLogic.cs` (`Repository`; GitHub zamienił „ś” na „-”,
+stąd `MapoMy-lacz`). Wersje 1.0–1.1 szukają wydań pod nazwą `dkinvoker/MapoMyslacz` — po zmianie nazwy repozytorium
+na `MapoMyslacz` (GitHub przekierowuje stare adresy) zobaczą aktualizacje także one.
 
 ### Wydawanie nowej wersji
 
@@ -139,7 +149,9 @@ Zwykły JSON (UTF-8), który da się czytać i poprawiać w Notatniku. Zapisywan
 - **Kafelek** (`nodes`): `x`, `y` to **środek** kafelka; `parent` — rodzic w drzewie (brak = temat główny lub kafelek
   swobodny); `width` — własna szerokość zawijania tekstu; `style`: `shape` (`rounded`, `rectangle`, `pill`, `ellipse`,
   `diamond`, `hexagon`, `none`), `fill`, `textColor`, `border`, `borderWidth`, `borderPattern` (`solid`, `dashed`,
-  `dotted`), `fontSize`, `bold`, `italic`, `strike`, `align` (`center`, `left`, `right`), `branchColor`.
+  `dotted`), `fontSize`, `bold`, `italic`, `strike`, `align` (`center`, `left`, `right`), `branchColor`;
+  `icons` — znaczniki (`"priority-1"`…`"priority-5"`, `"progress-0"`…`"progress-100"` albo dowolne emoji, np. `"🏰"`);
+  `link` — adres albo ścieżka do pliku (względna wobec mapy, np. `"Sesje/sesja 2.mapo"`).
 - **Strzałka** (`links`): `from` → `to`, `label`; `c1`/`c2` — punkty kontrolne krzywej **względem środków** kafelków
   początkowego/końcowego (dzięki temu kształt jedzie razem z kafelkami; brak = automatyczne „S”); `via` — punkty,
   przez które przechodzi gładka krzywa; `style`: `color`, `width`, `pattern`, `arrowStart`, `arrowEnd`,
@@ -157,8 +169,9 @@ nowa, niezapisana; zapisz ją jako `.mapo`. Z linii poleceń, hurtowo (każdy ar
 dotnet run --project tools/XmindConvert -- "Plansza ogólna.xmind" "Plansza Sesji 1 - wioska.xmind"
 ```
 
-Obsługiwany jest format XMind 2020+ (plik `content.json` w archiwum). Obrazki, ikony (markery), granice
-i podsumowania nie są przenoszone — informacja o obrazku trafia do notatki kafelka.
+Obsługiwany jest format XMind 2020+ (plik `content.json` w archiwum). Przenoszone są też znaczniki (priorytety,
+postęp, flagi, gwiazdki) i linki. Obrazki, granice i podsumowania nie są przenoszone — informacja o obrazku trafia
+do notatki kafelka.
 
 ## Budowanie ze źródeł
 
@@ -190,14 +203,28 @@ bez WinUI), który dostaje ten folder spakowany jako zasób. Starter przy pierws
 MapoMyslacz.exe mapa.mapo --export-png obraz.png --scale 2
 ```
 
+```bash
+MapoMyslacz.exe mapa.mapo --export-pdf mapa.pdf
+```
+
+PDF powstaje z ostatnio użytymi ustawieniami druku/PDF (domyślnie: A4, cała mapa na stronie, białe tło, 300 dpi).
 Działa też z plikiem `.xmind`. Kod wyjścia 0 = sukces (szczegóły błędu w `crash.log`).
+
+### Jak rysowane jest płótno
+
+Płótno to jedna powierzchnia **Win2D** (`Editor/MapScene.cs`): z mapy powstają lekkie „widoki” kafelków, gałęzi
+i strzałek z zapamiętanymi układami tekstu i gotowymi obrysami linii (`CanvasCachedGeometry` — przerywana strzałka
+nie jest cięta na kreski w każdej klatce). Rysowane jest tylko to, co widać; przy dużym oddaleniu tekst zamienia się
+w kreski. Gdy na ekranie jest ponad ~700 elementów, scena trafia do bitmapy z zapasem wokół widoku i przesuwanie oraz
+zaznaczanie tylko ją przesuwają. Jedyne elementy XAML nad płótnem to pola edycji tekstu.
+`MAPOMYSLACZ_TRACE=<plik>` zapisuje czasy rysowania poszczególnych warstw.
 
 ## Struktura projektu
 
 | Folder | Zawartość |
 |---|---|
-| `src/MapoMyslacz` | aplikacja WinUI 3: okno, panel właściwości, płótno (`Editor/MapCanvas*.cs`), aktualizacje, skojarzenia |
-| `src/MapoMyslacz.Core` | logika bez interfejsu: model i format `.mapo`, operacje, historia cofania, geometria strzałek, układ, style, import XMind, logika aktualizacji |
+| `src/MapoMyslacz` | aplikacja WinUI 3: okno, panel właściwości, płótno (`Editor/MapCanvas*.cs` — obsługa, `Editor/MapScene.cs` — rysowanie Win2D), druk (`Services/PrintService.cs`), aktualizacje, skojarzenia |
+| `src/MapoMyslacz.Core` | logika bez interfejsu: model i format `.mapo`, operacje, historia cofania, geometria strzałek, układ, style, znaczniki i linki, rozkład stron i zapis PDF (`Export/`), import XMind, logika aktualizacji |
 | `src/MapoMyslacz.Launcher` | jednoplikowy starter: rozpakowanie, uruchomienie, skrypt odinstalowania |
 | `src/MapoMyslacz.Tests` | testy jednostkowe (xUnit) |
 | `tools/` | `XmindConvert` (konwersja z XMind), `make-icon.ps1` (ikona), `make-cursors.ps1` (kursory „łapek”) |
@@ -209,9 +236,9 @@ Działa też z plikiem `.xmind`. Kod wyjścia 0 = sukces (szczegóły błędu w 
 dotnet test src/MapoMyslacz.Tests
 ```
 
-Ponad 90 testów: format pliku i naprawa uszkodzonych map, operacje edycyjne i schowek, historia cofania, geometria
+119 testów: format pliku i naprawa uszkodzonych map, operacje edycyjne i schowek, historia cofania, geometria
 (krawędzie kształtów, krzywe, wyginanie strzałek), automatyczny układ, style i kolory, import XMind i konspektu,
-logika aktualizacji, rozpakowywanie startera i skrypt odinstalowania. Testy nie otwierają okna.
+znaczniki i linki, rozkład stron do druku i zapis PDF, logika aktualizacji, rozpakowywanie startera i skrypt odinstalowania. Testy nie otwierają okna.
 
 Diagnostyka: zmienna środowiskowa `MAPOMYSLACZ_TRACE=<plik>` zapisuje zdarzenia myszy i edycji płótna,
 `MAPOMYSLACZ_UPDATE_FEED=<adres>` podmienia adres sprawdzania aktualizacji (np. na lokalny serwer testowy).

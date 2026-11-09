@@ -22,13 +22,20 @@ public sealed record ReleaseInfo(Version Version, string Tag, string Title, stri
 /// </summary>
 public static partial class UpdateLogic
 {
-    /// <summary>Repozytorium z wydaniami (właściciel/nazwa).</summary>
-    public const string Repository = "dkinvoker/MapoMyslacz";
+    /// <summary>
+    /// Repozytorium z wydaniami (właściciel/nazwa). GitHub zamienił „ś” z nazwy „MapoMyślacz” na „-”.
+    /// Po zmianie nazwy repozytorium GitHub przekierowuje stary adres, więc wpis działa dalej.
+    /// </summary>
+    public const string Repository = "dkinvoker/MapoMy-lacz";
+
+    /// <summary>Gdzie jeszcze szukać wydań (nazwa używana w wersjach 1.0–1.1), gdy główne repozytorium zwróci 404.</summary>
+    public static readonly IReadOnlyList<string> Repositories = [Repository, "dkinvoker/MapoMyslacz"];
 
     /// <summary>Plik wydania z jednoplikową aplikacją (x64). Wersja ARM64 ma przyrostek -arm64.</summary>
     public const string AssetName = "MapoMyslacz.exe";
 
-    public static string LatestReleaseApi => $"https://api.github.com/repos/{Repository}/releases/latest";
+    public static string LatestReleaseApi => LatestReleaseApiFor(Repository);
+    public static string LatestReleaseApiFor(string repository) => $"https://api.github.com/repos/{repository}/releases/latest";
     public static string ReleasesPage => $"https://github.com/{Repository}/releases";
 
     [GeneratedRegex(@"(\d+)\.(\d+)(?:\.(\d+))?")]

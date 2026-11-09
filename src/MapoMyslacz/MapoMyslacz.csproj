@@ -45,6 +45,8 @@
     <!-- Zamiast metapakietu Microsoft.WindowsAppSDK tylko potrzebne komponenty (bez AI/ML/Search/Widgets). -->
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.6.5" />
     <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.6.5" />
+    <!-- Win2D: całe płótno rysowane na jednej powierzchni (szybkie przy tysiącach kafelków), eksport PNG/PDF i druk -->
+    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
   </ItemGroup>
 
   <ItemGroup>

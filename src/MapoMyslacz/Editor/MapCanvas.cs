@@ -1,46 +1,43 @@
+using System.Diagnostics;
+using System.Numerics;
 using MapoMyslacz.Core.Editing;
 using MapoMyslacz.Core.Model;
+using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Geometry;
+using Microsoft.Graphics.Canvas.UI;
+using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Shapes;
 using Windows.Foundation;
+using static MapoMyslacz.Editor.MapScene;
 using XCanvas = Microsoft.UI.Xaml.Controls.Canvas;
 
 namespace MapoMyslacz.Editor;
 
 /// <summary>
-/// Nieskończone płótno z mapą myśli: rysuje kafelki, gałęzie i strzałki, obsługuje przesuwanie widoku,
-/// powiększanie, zaznaczanie, przeciąganie i edycję tekstu w miejscu.
-/// Układ: świat (kafelki itd.) jest jednym Canvasem przekształcanym przez skalę i przesunięcie, więc
-/// wszystkie obliczenia są w układzie mapy, a ekran to tylko widok na nią.
+/// Nieskończone płótno z mapą myśli. Całą mapę rysuje Win2D na jednej powierzchni (<see cref="MapScene"/>),
+/// rysowane jest tylko to, co widać — dzięki temu przesuwanie, powiększanie i zaznaczanie są płynne także
+/// przy tysiącach kafelków. Elementy XAML są tylko dwa: powierzchnia rysowania i warstwa z polem edycji tekstu.
+/// Wszystkie obliczenia są w układzie mapy, a ekran to widok na nią (skala + przesunięcie).
 /// </summary>
 public sealed partial class MapCanvas : Grid
 {
-    public const double MinZoom = 0.1, MaxZoom = 4;
+    public const double MinZoom = 0.05, MaxZoom = 4;
     internal static readonly Rgba Accent = Rgba.Parse("#7C3AED", Rgba.Black);
 
     private MapSession _session = new();
-    private readonly XCanvas _exportHost = new();
-    private readonly Rectangle _backdrop = new() { IsHitTestVisible = false };
-    private readonly XCanvas _world = new() { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
-    private readonly XCanvas _branchLayer = new(), _linkLayer = new(), _nodeLayer = new(), _overlay = new();
-    private readonly CompositeTransform _transform = new();
-    private readonly Rectangle _marquee = new()
-    {
-        Visibility = Visibility.Collapsed,
-        IsHitTestVisible = false,
-        HorizontalAlignment = HorizontalAlignment.Left,
-        VerticalAlignment = VerticalAlignment.Top,
-        StrokeThickness = 1,
-    };
-    private readonly Dictionary<string, NodeVisual> _nodes = [];
-    private readonly Dictionary<string, Microsoft.UI.Xaml.Shapes.Path> _branches = [];
-    private readonly Dictionary<string, LinkVisual> _links = [];
+    private readonly CanvasControl _canvas = new() { UseSharedDevice = true };
+    private readonly XCanvas _editorLayer = new() { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
+    private readonly CompositeTransform _editorTransform = new();
+    private readonly MapScene _scene = new();
     private double _zoom = 1;
     private Vec _pan;
     private Rgba _canvasColor = Styles.CanvasBackground;
     private bool _viewInitialized;
+
+    private Dictionary<string, NodeView> _nodes => _scene.Nodes;
+    private Dictionary<string, LinkView> _links => _scene.Links;
 
     /// <summary>Zmienił się widok (powiększenie/przesunięcie).</summary>
     public event Action? ViewChanged;
@@ -51,36 +48,43 @@ public sealed partial class MapCanvas : Grid
     /// <summary>Podpowiedź na pasku stanu zależna od tego, co się dzieje (np. tryb łączenia).</summary>
     public event Action<string?>? HintChanged;
 
+    /// <summary>Użytkownik chce otworzyć link kafelka (Ctrl+klik albo znaczek linku).</summary>
+    public event Action<Node>? OpenLinkRequested;
+
     public MapCanvas()
     {
-        Background = Xaml.Brush(Rgba.Transparent); // przezroczyste tło też łapie mysz
+        Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent); // przezroczyste tło też łapie mysz
         IsTabStop = true;
         UseSystemFocusVisuals = false;
-        AllowDrop = false;
 
-        _marquee.Fill = Xaml.Brush(Accent.WithAlpha(28));
-        _marquee.Stroke = Xaml.Brush(Accent.WithAlpha(200));
-
-        _world.RenderTransform = _transform;
-        _world.Children.Add(_branchLayer);
-        _world.Children.Add(_linkLayer);
-        _world.Children.Add(_nodeLayer);
-        _world.Children.Add(_overlay);
-
-        // kolejność: płótno eksportu (zasłonięte tłem), tło, świat, prostokąt zaznaczania
-        Children.Add(_exportHost);
-        Children.Add(_backdrop);
-        Children.Add(_world);
-        Children.Add(_marquee);
+        _canvas.Draw += OnDraw;
+        if (TraceDraw is not null) MapScene.Profiler = Trace;
+        _canvas.CreateResources += (_, e) =>
+        {
+            // utrata urządzenia graficznego (np. zmiana karty/sterownika) — geometrie trzeba utworzyć od nowa
+            if (e.Reason != CanvasCreateResourcesReason.FirstTime) RebuildAll();
+        };
+        _editorLayer.RenderTransform = _editorTransform;
+        Children.Add(_canvas);
+        Children.Add(_editorLayer);
 
         SizeChanged += (_, e) =>
         {
             Clip = new RectangleGeometry { Rect = new Rect(0, 0, e.NewSize.Width, e.NewSize.Height) };
             if (!_viewInitialized && e.NewSize.Width > 0) InitializeView();
+            _canvas.Invalidate();
         };
         ActualThemeChanged += (_, _) => Rebuild();
         Bind(_session);
         InitInput();
+    }
+
+    /// <summary>Zwalnia powierzchnię Win2D przy zamykaniu okna.</summary>
+    public void Shutdown()
+    {
+        DropSceneCache();
+        _canvas.RemoveFromVisualTree();
+        _scene.Dispose();
     }
 
     public MapSession Session
@@ -93,8 +97,14 @@ public sealed partial class MapCanvas : Grid
             CommitEdit();
             _session.Changed -= OnSessionChanged;
             _session.SelectionChanged -= OnSelectionChanged;
-            ClearVisuals();
             _session = value;
+            DropSceneCache();
+            _scene.Dispose();
+            if (_hoverHint is not null)
+            {
+                _hoverHint = null;
+                HintChanged?.Invoke(null);
+            }
             Bind(value);
             _viewInitialized = false;
             if (ActualWidth > 0) InitializeView();
@@ -123,17 +133,6 @@ public sealed partial class MapCanvas : Grid
 
     private void OnSelectionChanged() => UpdateOverlay();
 
-    private void ClearVisuals()
-    {
-        _nodeLayer.Children.Clear();
-        _branchLayer.Children.Clear();
-        _linkLayer.Children.Clear();
-        _overlay.Children.Clear();
-        _nodes.Clear();
-        _branches.Clear();
-        _links.Clear();
-    }
-
     // ================================================================== widok
 
     public double Zoom => _zoom;
@@ -145,6 +144,8 @@ public sealed partial class MapCanvas : Grid
     internal Point ToScreen(Vec w) => new(w.X * _zoom + _pan.X, w.Y * _zoom + _pan.Y);
 
     private Point ViewCenter => new(ActualWidth / 2, ActualHeight / 2);
+
+    private Box VisibleWorld => Box.FromCorners(ToWorld(new Point(0, 0)), ToWorld(new Point(ActualWidth, ActualHeight)));
 
     /// <summary>Bieżący widok do zapisania w pliku.</summary>
     public ViewState CurrentView
@@ -158,9 +159,9 @@ public sealed partial class MapCanvas : Grid
 
     private void ApplyTransform()
     {
-        _transform.ScaleX = _transform.ScaleY = _zoom;
-        _transform.TranslateX = _pan.X;
-        _transform.TranslateY = _pan.Y;
+        _editorTransform.ScaleX = _editorTransform.ScaleY = _zoom;
+        _editorTransform.TranslateX = _pan.X;
+        _editorTransform.TranslateY = _pan.Y;
         UpdateOverlay();
         ViewChanged?.Invoke();
     }
@@ -190,24 +191,11 @@ public sealed partial class MapCanvas : Grid
         ApplyTransform();
     }
 
-    /// <summary>Granice treści mapy (kafelki, strzałki, podpisy).</summary>
-    internal Box? ContentBounds(IEnumerable<string>? onlyNodes = null)
-    {
-        IEnumerable<Box> boxes = onlyNodes is null
-            ? _nodes.Values.Select(v => v.Bounds)
-            : onlyNodes.Where(_nodes.ContainsKey).Select(id => _nodes[id].Bounds);
-        if (onlyNodes is null)
-        {
-            boxes = boxes.Concat(_links.Values.Where(l => l.LabelBounds is not null).Select(l => l.LabelBounds!.Value));
-            foreach (var lv in _links.Values)
-            {
-                if (lv.Route is null) continue;
-                // krzywa Béziera leży w otoczce swoich punktów — przybliżamy ją punktami pośrednimi
-                boxes = boxes.Concat(lv.Route.Curves.SelectMany(c => c.Flatten(8)).Select(p => new Box(p.X, p.Y, 0, 0)));
-            }
-        }
-        return Box.Union(boxes);
-    }
+    /// <summary>Granice treści mapy (kafelki, strzałki, podpisy) albo wskazanych kafelków.</summary>
+    internal Box? ContentBounds(IEnumerable<string>? onlyNodes = null) =>
+        onlyNodes is null
+            ? _scene.ContentBounds()
+            : Box.Union(onlyNodes.Where(_nodes.ContainsKey).Select(id => _nodes[id].Bounds));
 
     /// <summary>Pokazuje całą mapę (albo zaznaczenie).</summary>
     public void FitToContent(bool selectionOnly = false)
@@ -240,143 +228,41 @@ public sealed partial class MapCanvas : Grid
         if (dx != 0 || dy != 0) PanBy(dx, dy);
     }
 
-    // ================================================================== rysowanie
+    // ================================================================== budowanie sceny
 
-    /// <summary>Synchronizuje elementy XAML z mapą (tworzy, aktualizuje i usuwa).</summary>
+    /// <summary>Synchronizuje scenę z mapą i odświeża rysunek.</summary>
     public void Rebuild()
     {
         var map = _session.Map;
-        var idx = _session.Index;
         bool dark = ActualTheme == ElementTheme.Dark;
         _canvasColor = map.Background is { } bg && Rgba.TryParse(bg, out var c)
             ? c
             : dark ? Styles.DarkCanvasBackground : Styles.CanvasBackground;
-        _backdrop.Fill = Xaml.Brush(_canvasColor);
-
-        var visible = new HashSet<string>(map.Nodes.Where(idx.IsVisible).Select(n => n.Id));
-        foreach (var id in _nodes.Keys.Where(k => !visible.Contains(k)).ToList())
-        {
-            _nodeLayer.Children.Remove(_nodes[id].Root);
-            _nodes.Remove(id);
-        }
-        foreach (var n in map.Nodes)
-        {
-            if (!visible.Contains(n.Id)) continue;
-            if (!_nodes.TryGetValue(n.Id, out var v))
-            {
-                v = new NodeVisual(n.Id);
-                _nodes[n.Id] = v;
-                _nodeLayer.Children.Add(v.Root);
-            }
-            UpdateNode(idx, n, v);
-        }
-        RebuildBranches(idx);
-        RebuildLinks();
+        _scene.EditingId = _editNodeId;
+        _scene.Build(map, _session.Index, _canvasColor);
+        _sceneVersion++;
         UpdateOverlay();
     }
 
-    private void UpdateNode(MapIndex idx, Node n, NodeVisual v)
+    private void RebuildAll()
     {
-        var style = Styles.Resolve(n.Style, Styles.BranchColorFor(idx, n), _canvasColor);
-        int hidden = n.Collapsed ? idx.Descendants(n.Id).Count : 0;
-        v.Update(n, style, hidden, ChildrenSide(idx, n));
-    }
-
-    /// <summary>Strona, po której rosną dzieci kafelka (do znaczka zwiniętej gałęzi i uchwytu łączenia).</summary>
-    private static int ChildrenSide(MapIndex idx, Node n)
-    {
-        var kids = idx.ChildrenOf(n.Id);
-        if (kids.Count > 0) return kids.Average(k => k.X) < n.X ? -1 : 1;
-        return idx.ParentOf(n) is null ? 1 : MapOps.SideOf(idx, n);
-    }
-
-    private void RebuildBranches(MapIndex idx)
-    {
-        var want = new HashSet<string>();
-        foreach (var n in _session.Map.Nodes)
-        {
-            if (n.Parent is null || !_nodes.ContainsKey(n.Id) || !_nodes.ContainsKey(n.Parent)) continue;
-            want.Add(n.Id);
-            if (!_branches.TryGetValue(n.Id, out var path))
-            {
-                path = new Microsoft.UI.Xaml.Shapes.Path
-                {
-                    IsHitTestVisible = false,
-                    StrokeStartLineCap = PenLineCap.Round,
-                    StrokeEndLineCap = PenLineCap.Round,
-                };
-                _branches[n.Id] = path;
-                _branchLayer.Children.Add(path);
-            }
-            UpdateBranch(idx, n, path);
-        }
-        foreach (var id in _branches.Keys.Where(k => !want.Contains(k)).ToList())
-        {
-            _branchLayer.Children.Remove(_branches[id]);
-            _branches.Remove(id);
-        }
-    }
-
-    private void UpdateBranch(MapIndex idx, Node child, Microsoft.UI.Xaml.Shapes.Path path)
-    {
-        var pv = _nodes[child.Parent!];
-        var cv = _nodes[child.Id];
-        var curve = LinkRouting.Branch(pv.Outline, cv.Outline);
-        path.Data = Xaml.Geometry([curve]);
-        path.Stroke = Xaml.Brush(cv.Style!.BranchColor);
-        // gałęzie wychodzące z tematu głównego są grubsze
-        path.StrokeThickness = idx.Get(child.Parent) is { } parent && parent.Parent is null ? 3 : 2;
-    }
-
-    private void RebuildLinks()
-    {
-        var want = new HashSet<string>();
-        foreach (var l in _session.Map.Links)
-        {
-            if (!_nodes.ContainsKey(l.From) || !_nodes.ContainsKey(l.To)) continue;
-            want.Add(l.Id);
-            if (!_links.TryGetValue(l.Id, out var lv))
-            {
-                lv = new LinkVisual(l.Id);
-                _links[l.Id] = lv;
-                lv.AddTo(_linkLayer);
-            }
-            UpdateLink(l, lv);
-        }
-        foreach (var id in _links.Keys.Where(k => !want.Contains(k)).ToList())
-        {
-            _links[id].RemoveFrom(_linkLayer);
-            _links.Remove(id);
-        }
-    }
-
-    private void UpdateLink(Link l, LinkVisual lv)
-    {
-        var s = Styles.Resolve(l.Style);
-        var path = LinkRouting.Route(l, s.Curve, _nodes[l.From].Outline, _nodes[l.To].Outline);
-        lv.Update(l, s, path, _canvasColor);
+        DropSceneCache();
+        _scene.Dispose();
+        Rebuild();
     }
 
     /// <summary>Po przesunięciu kafelków: nowe pozycje i geometria dotkniętych linii (bez pełnej przebudowy).</summary>
     private void RefreshGeometry(HashSet<string> moved)
     {
-        var idx = _session.Index;
-        foreach (var id in moved)
-            if (_nodes.TryGetValue(id, out var v) && idx.Get(id) is { } n) v.SetCenter(n.X, n.Y);
-        foreach (var (childId, path) in _branches)
-        {
-            var child = idx.Get(childId);
-            if (child?.Parent is null) continue;
-            if (moved.Contains(childId) || moved.Contains(child.Parent)) UpdateBranch(idx, child, path);
-        }
-        foreach (var l in _session.Map.Links)
-            if ((moved.Contains(l.From) || moved.Contains(l.To)) && _links.TryGetValue(l.Id, out var lv)) UpdateLink(l, lv);
+        _scene.Move(_session.Index, moved, _session.Map);
+        _sceneVersion++;
         UpdateOverlay();
     }
 
     private void RefreshLink(Link l)
     {
-        if (_links.TryGetValue(l.Id, out var lv)) UpdateLink(l, lv);
+        if (_links.TryGetValue(l.Id, out var lv)) _scene.UpdateLink(l, lv);
+        _sceneVersion++;
         UpdateOverlay();
     }
 
@@ -384,131 +270,175 @@ public sealed partial class MapCanvas : Grid
 
     internal NodeSizer Sizer => SizeOf;
 
-    // ================================================================== nakładka: zaznaczenie i uchwyty
+    // ================================================================== rysowanie
 
+    private static readonly string? TraceDraw = Environment.GetEnvironmentVariable("MAPOMYSLACZ_TRACE");
     private Vec? _connectHandle;
 
+    /// <summary>Nakładka (zaznaczenie, uchwyty) jest rysowana razem ze sceną — wystarczy odświeżyć.</summary>
     private void UpdateOverlay()
     {
-        _overlay.Children.Clear();
         _connectHandle = null;
-        double px = 1 / _zoom;
-        var accent = Xaml.Brush(Accent);
+        if (_editor is null && _labelEditor is null && _drag == DragMode.None && _session.SingleNode is { } single
+            && _nodes.TryGetValue(single.Id, out var nv))
+        {
+            double px = 1 / _zoom;
+            int side = MapScene.ChildrenSide(_session.Index, single);
+            var b = nv.Bounds;
+            var c = new Vec(side > 0 ? b.Right + 16 * px : b.Left - 16 * px, b.Center.Y);
+            if (nv.BadgeBounds is { } badge) c = new Vec(side > 0 ? badge.Right + 14 * px : badge.Left - 14 * px, c.Y);
+            _connectHandle = c;
+        }
+        _canvas.Invalidate();
+    }
+
+    // ------------------------------------------------------------------ bitmapa sceny dla bardzo dużych widoków
+
+    /// <summary>Od ilu widocznych elementów scena trafia do bitmapy (przesuwanie i zaznaczanie tylko ją przesuwają).</summary>
+    private const int HeavyScene = 700;
+
+    private CanvasRenderTarget? _sceneCache;
+    private Box _cacheWorld;
+    private double _cacheZoom;
+    private int _cacheVersion = -1;
+    private int _sceneVersion;
+
+    private void DropSceneCache()
+    {
+        _sceneCache?.Dispose();
+        _sceneCache = null;
+    }
+
+    private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
+    {
+        var sw = TraceDraw is null ? null : Stopwatch.StartNew();
+        var ds = args.DrawingSession;
+        ds.Clear(C(_canvasColor));
+        var world = Matrix3x2.CreateScale((float)_zoom) * Matrix3x2.CreateTranslation((float)_pan.X, (float)_pan.Y);
+        var view = VisibleWorld;
+        var visible = view.Inflate(30 / _zoom);
+        // przeciąganie kafelków/strzałek zmienia scenę w każdej klatce — wtedy bitmapa nic by nie dała
+        bool editing = _drag is DragMode.MoveNodes or DragMode.BendLink or DragMode.MoveHandle || _editor is not null;
+        bool cached = false;
+        if (!editing && _scene.CountVisible(visible, HeavyScene) >= HeavyScene)
+        {
+            if (_sceneCache is null || _cacheZoom != _zoom || _cacheVersion != _sceneVersion || !_cacheWorld.ContainsBox(view))
+                RenderSceneCache(sender, view);
+            if (_sceneCache is not null)
+            {
+                var at = ToScreen(new Vec(_cacheWorld.X, _cacheWorld.Y));
+                ds.DrawImage(_sceneCache, (float)Math.Round(at.X), (float)Math.Round(at.Y));
+                cached = true;
+            }
+        }
+        else if (_sceneCache is not null)
+        {
+            DropSceneCache();
+        }
+        ds.Transform = world;
+        if (!cached) _scene.Draw(ds, visible, _zoom);
+        DrawOverlay(ds);
+        ds.Transform = Matrix3x2.Identity;
+        if (_drag == DragMode.Marquee) DrawMarquee(ds);
+        if (sw is not null) Trace($"draw {sw.Elapsed.TotalMilliseconds:0.0} ms{(cached ? " (z bitmapy)" : "")} ({_nodes.Count} kafelków, {_links.Count} strzałek)");
+    }
+
+    /// <summary>Rysuje scenę do bitmapy obejmującej widok z zapasem (po pół ekranu z każdej strony).</summary>
+    private void RenderSceneCache(CanvasControl sender, Box view)
+    {
+        DropSceneCache();
+        var area = view.Inflate(Math.Max(view.Width, view.Height) * 0.5);
+        double wDip = area.Width * _zoom, hDip = area.Height * _zoom;
+        double maxDip = sender.Device.MaximumBitmapSizeInPixels / Math.Max(1, sender.Dpi / 96) * 0.95;
+        if (wDip > maxDip || hDip > maxDip)
+        {
+            area = view.Inflate(Math.Max(0, Math.Min((maxDip / _zoom - view.Width) / 2, (maxDip / _zoom - view.Height) / 2)));
+            wDip = area.Width * _zoom;
+            hDip = area.Height * _zoom;
+        }
+        _sceneCache = new CanvasRenderTarget(sender, (float)wDip, (float)hDip);
+        using (var cds = _sceneCache.CreateDrawingSession())
+        {
+            cds.Clear(C(_canvasColor));
+            cds.Transform = Matrix3x2.CreateTranslation((float)-area.X, (float)-area.Y) * Matrix3x2.CreateScale((float)_zoom);
+            _scene.Draw(cds, area, _zoom);
+        }
+        _cacheWorld = area;
+        _cacheZoom = _zoom;
+        _cacheVersion = _sceneVersion;
+    }
+
+    private void DrawOverlay(CanvasDrawingSession ds)
+    {
+        float px = (float)(1 / _zoom);
+        var accent = C(Accent);
 
         foreach (var id in _session.SelectedLinks)
         {
-            if (!_links.TryGetValue(id, out var lv) || lv.Route is null || lv.Style is null) continue;
-            _overlay.Children.Add(new Microsoft.UI.Xaml.Shapes.Path
-            {
-                Data = Xaml.Geometry(lv.Route.Curves),
-                Stroke = Xaml.Brush(Accent.WithAlpha(90)),
-                StrokeThickness = lv.Style.Width + 7 * px,
-                StrokeStartLineCap = PenLineCap.Round,
-                StrokeEndLineCap = PenLineCap.Round,
-                IsHitTestVisible = false,
-            });
-            if (lv.LabelBounds is { } lb) AddOutline(lb.Inflate(2 * px), accent, px, 3);
+            if (!_links.TryGetValue(id, out var lv) || lv.Geometry is null || lv.Style is null) continue;
+            ds.DrawGeometry(lv.Geometry, C(Accent.WithAlpha(90)), (float)lv.Style.Width + 7 * px, RoundCaps);
+            if (lv.LabelBounds is { } lb) Outline(ds, lb.Inflate(2 * px), accent, px, 3);
         }
 
-        foreach (var id in _session.SelectedNodes)
+        IEnumerable<string> selected = _session.SelectedNodes;
+        if (_drag == DragMode.Marquee) selected = _marqueeBase.Concat(_marqueeHits);
+        foreach (var id in selected)
         {
             if (!_nodes.TryGetValue(id, out var v)) continue;
-            AddOutline(v.Bounds.Inflate(4 * px + (v.Style?.BorderWidth ?? 0) / 2), accent, px, 7);
+            Outline(ds, v.Bounds.Inflate(4 * px + v.Style.BorderWidth / 2), accent, px, 7);
         }
 
         // uchwyty krzywizny pojedynczej zaznaczonej strzałki
         if (_session.SelectedLinks.Count == 1 && _session.SelectedNodes.Count == 0
             && _links.TryGetValue(_session.SelectedLinks.First(), out var sl) && sl.Route is { Handle1: { } h1, Handle2: { } h2 } p)
         {
-            AddLine(p.Start, h1, accent, px);
-            AddLine(p.End, h2, accent, px);
-            AddDot(h1, 5.5 * px, accent, px);
-            AddDot(h2, 5.5 * px, accent, px);
+            ds.DrawLine(V2(p.Start), V2(h1), accent, px);
+            ds.DrawLine(V2(p.End), V2(h2), accent, px);
+            foreach (var h in new[] { h1, h2 })
+            {
+                ds.FillCircle(V2(h), 5.5f * px, Microsoft.UI.Colors.White);
+                ds.DrawCircle(V2(h), 5.5f * px, accent, 2 * px);
+            }
         }
 
-        // uchwyt „+” do przeciągania nowej strzałki / dodawania dziecka
-        if (_editor is null && _drag == DragMode.None && _session.SingleNode is { } single && _nodes.TryGetValue(single.Id, out var nv))
+        // kółko „+”: klik — dziecko, przeciągnięcie — strzałka
+        if (_connectHandle is { } ch)
         {
-            int side = ChildrenSide(_session.Index, single);
-            var b = nv.Bounds;
-            var c = new Vec(side > 0 ? b.Right + 16 * px : b.Left - 16 * px, b.Center.Y);
-            if (nv.BadgeBounds is { } badge) c = new Vec(side > 0 ? badge.Right + 14 * px : badge.Left - 14 * px, c.Y);
-            _connectHandle = c;
-            double r = 9 * px;
-            var dot = new Ellipse { Width = 2 * r, Height = 2 * r, Fill = accent, IsHitTestVisible = false };
-            XCanvas.SetLeft(dot, c.X - r);
-            XCanvas.SetTop(dot, c.Y - r);
-            _overlay.Children.Add(dot);
-            var white = Xaml.Brush(Rgba.White);
-            AddLine(c - new Vec(4.5 * px, 0), c + new Vec(4.5 * px, 0), white, px * 1.8);
-            AddLine(c - new Vec(0, 4.5 * px), c + new Vec(0, 4.5 * px), white, px * 1.8);
+            ds.FillCircle(V2(ch), 9 * px, accent);
+            ds.DrawLine(V2(ch - new Vec(4.5 * px, 0)), V2(ch + new Vec(4.5 * px, 0)), Microsoft.UI.Colors.White, 1.8f * px, RoundCaps);
+            ds.DrawLine(V2(ch - new Vec(0, 4.5 * px)), V2(ch + new Vec(0, 4.5 * px)), Microsoft.UI.Colors.White, 1.8f * px, RoundCaps);
         }
 
         if (_drag == DragMode.Connect && _connectPreview is { } prev)
         {
-            _overlay.Children.Add(new Microsoft.UI.Xaml.Shapes.Path
-            {
-                Data = Xaml.Geometry([prev]),
-                Stroke = accent,
-                StrokeThickness = 2 * px,
-                StrokeDashArray = new DoubleCollection { 4, 3 },
-                IsHitTestVisible = false,
-            });
-            var arrow = LinkVisual.Arrow(prev.P3, prev.TangentAt(1).Normalized(), 10 * px, 5 * px);
-            _overlay.Children.Add(new Polygon { Points = Xaml.Points(arrow), Fill = accent, IsHitTestVisible = false });
+            using var g = PathGeometry([prev]);
+            ds.DrawGeometry(g, accent, 2 * px, PreviewDash);
+            FillTriangle(ds, Arrow(prev.P3, prev.TangentAt(1).Normalized(), 10 * px, 5 * px), accent);
             if (_dropTarget is { } dt && _nodes.TryGetValue(dt, out var tv))
-                AddOutline(tv.Bounds.Inflate(5 * px), accent, px, 7, dashed: true);
+                Outline(ds, tv.Bounds.Inflate(5 * px), accent, px, 7, dashed: true);
         }
     }
 
-    private void AddOutline(Box b, Brush stroke, double px, double radius, bool dashed = false)
+    private static readonly CanvasStrokeStyle RoundCaps = new() { StartCap = CanvasCapStyle.Round, EndCap = CanvasCapStyle.Round };
+    private static readonly CanvasStrokeStyle PreviewDash = new() { CustomDashStyle = [4f, 3f] };
+    private static readonly CanvasStrokeStyle OutlineDash = new() { CustomDashStyle = [3f, 2f] };
+
+    private static void Outline(CanvasDrawingSession ds, Box b, Windows.UI.Color color, float px, float radius, bool dashed = false)
     {
-        var r = new Rectangle
-        {
-            Width = b.Width,
-            Height = b.Height,
-            Stroke = stroke,
-            StrokeThickness = 2 * px,
-            RadiusX = radius * px,
-            RadiusY = radius * px,
-            IsHitTestVisible = false,
-        };
-        if (dashed) r.StrokeDashArray = new DoubleCollection { 3, 2 };
-        XCanvas.SetLeft(r, b.X);
-        XCanvas.SetTop(r, b.Y);
-        _overlay.Children.Add(r);
+        if (dashed) ds.DrawRoundedRectangle(R(b), radius * px, radius * px, color, 2 * px, OutlineDash);
+        else ds.DrawRoundedRectangle(R(b), radius * px, radius * px, color, 2 * px);
     }
 
-    private void AddLine(Vec a, Vec b, Brush stroke, double thickness) =>
-        _overlay.Children.Add(new Line
-        {
-            X1 = a.X, Y1 = a.Y, X2 = b.X, Y2 = b.Y,
-            Stroke = stroke,
-            StrokeThickness = thickness,
-            StrokeStartLineCap = PenLineCap.Round,
-            StrokeEndLineCap = PenLineCap.Round,
-            IsHitTestVisible = false,
-        });
-
-    private void AddDot(Vec c, double r, Brush stroke, double px)
+    private void DrawMarquee(CanvasDrawingSession ds)
     {
-        var e = new Ellipse
-        {
-            Width = 2 * r,
-            Height = 2 * r,
-            Fill = Xaml.Brush(Rgba.White),
-            Stroke = stroke,
-            StrokeThickness = 2 * px,
-            IsHitTestVisible = false,
-        };
-        XCanvas.SetLeft(e, c.X - r);
-        XCanvas.SetTop(e, c.Y - r);
-        _overlay.Children.Add(e);
+        var r = MarqueeRect;
+        ds.FillRectangle(r, C(Accent.WithAlpha(28)));
+        ds.DrawRectangle(r, C(Accent.WithAlpha(200)), 1);
     }
 
     // ================================================================== trafianie myszką
 
-    private enum HitKind { None, Node, Badge, Link, LinkHandle1, LinkHandle2, ConnectHandle }
+    private enum HitKind { None, Node, Badge, LinkMark, Link, LinkHandle1, LinkHandle2, ConnectHandle }
 
     private readonly record struct Hit(HitKind Kind, string? Id = null);
 
@@ -526,28 +456,21 @@ public sealed partial class MapCanvas : Grid
         }
 
         // kafelki od wierzchu (ostatnio dodane są na górze)
-        for (int i = _session.Map.Nodes.Count - 1; i >= 0; i--)
+        var order = _scene.NodeOrder;
+        for (int i = order.Count - 1; i >= 0; i--)
         {
-            var n = _session.Map.Nodes[i];
-            if (!_nodes.TryGetValue(n.Id, out var v)) continue;
-            if (v.BadgeBounds is { } bb && bb.Inflate(2 * px).Contains(w)) return new Hit(HitKind.Badge, n.Id);
-            if (v.HitTest(w)) return new Hit(HitKind.Node, n.Id);
+            var v = order[i];
+            if (v.BadgeBounds is { } bb && bb.Inflate(2 * px).Contains(w)) return new Hit(HitKind.Badge, v.Id);
+            if (v.LinkMarkBounds is { } lm && lm.Inflate(1 * px).Contains(w) && _zoom * v.Style.FontSize >= 2.5) return new Hit(HitKind.LinkMark, v.Id);
+            if (v.HitTest(w)) return new Hit(HitKind.Node, v.Id);
         }
 
-        LinkVisual? best = null;
+        LinkView? best = null;
         foreach (var lv in _links.Values)
             if (lv.HitTest(w, Math.Max(6 * px, (lv.Style?.Width ?? 2) / 2 + 3 * px))) best = lv;
         if (best is not null) return new Hit(HitKind.Link, best.Id);
         return new Hit(HitKind.None);
     }
 
-    internal string? NodeAt(Vec w, string? except = null)
-    {
-        for (int i = _session.Map.Nodes.Count - 1; i >= 0; i--)
-        {
-            var n = _session.Map.Nodes[i];
-            if (n.Id != except && _nodes.TryGetValue(n.Id, out var v) && v.HitTest(w)) return n.Id;
-        }
-        return null;
-    }
+    internal string? NodeAt(Vec w, string? except = null) => _scene.NodeAt(w, except)?.Id;
 }

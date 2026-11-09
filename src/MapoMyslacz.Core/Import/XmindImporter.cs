@@ -114,6 +114,13 @@ public static partial class XmindImporter
         }
         node.Style = ConvertTopicStyle(ctx, topic, baseClass, isRoot);
         node.Note = NoteOf(topic);
+        if (Str(topic, "href") is { Length: > 0 } href && !href.StartsWith("xmind:", StringComparison.OrdinalIgnoreCase))
+            node.Link = href;
+        if (topic.TryGetProperty("markers", out var markers) && markers.ValueKind == JsonValueKind.Array)
+        {
+            var icons = markers.EnumerateArray().Select(m => Markers.FromXmind(Str(m, "markerId"))).OfType<string>().ToList();
+            if (icons.Count > 0) node.Icons = Markers.Sorted(icons);
+        }
         node.Collapsed = Str(topic, "branch") == "folded";
         ctx.Map.Nodes.Add(node);
 
@@ -162,8 +169,6 @@ public static partial class XmindImporter
             var l = labels.EnumerateArray().Select(x => x.GetString()).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
             if (l.Count > 0) parts.Add("Etykiety: " + string.Join(", ", l));
         }
-        if (Str(topic, "href") is { Length: > 0 } href && !href.StartsWith("xmind:", StringComparison.OrdinalIgnoreCase))
-            parts.Add("Link: " + href);
         if (topic.TryGetProperty("image", out _)) parts.Add("(W XMind był tu obrazek — nie został przeniesiony.)");
         return parts.Count > 0 ? string.Join("\n\n", parts) : null;
     }

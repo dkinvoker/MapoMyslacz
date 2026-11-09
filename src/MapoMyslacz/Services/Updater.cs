@@ -57,12 +57,18 @@ internal static class Updater
     /// <summary>Najnowsze wydanie, jeśli jest nowsze niż ta wersja (null: brak nowszego albo brak wydań).</summary>
     public static async Task<ReleaseInfo?> CheckAsync(CancellationToken ct = default)
     {
-        var url = Environment.GetEnvironmentVariable(FeedOverrideVariable) is { Length: > 0 } o ? o : UpdateLogic.LatestReleaseApi;
-        using var response = await Http.GetAsync(url, ct);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null; // jeszcze żadnego wydania
-        response.EnsureSuccessStatusCode();
-        var info = UpdateLogic.Parse(await response.Content.ReadAsStringAsync(ct), IsArm64);
-        return info is not null && UpdateLogic.IsNewer(info.Version, CurrentVersion) ? info : null;
+        var urls = Environment.GetEnvironmentVariable(FeedOverrideVariable) is { Length: > 0 } o
+            ? [o]
+            : UpdateLogic.Repositories.Select(UpdateLogic.LatestReleaseApiFor).ToList();
+        foreach (var url in urls)
+        {
+            using var response = await Http.GetAsync(url, ct);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound) continue; // brak repozytorium albo wydań — następne
+            response.EnsureSuccessStatusCode();
+            var info = UpdateLogic.Parse(await response.Content.ReadAsStringAsync(ct), IsArm64);
+            return info is not null && UpdateLogic.IsNewer(info.Version, CurrentVersion) ? info : null;
+        }
+        return null;
     }
 
     /// <summary>

@@ -44,9 +44,22 @@ public sealed partial class MainWindow : Window
             Toast.IsOpen = false;
         };
 
+        // tło komunikatów pojawia się i znika razem z nimi; cień odcina je od płótna
+        Toast.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty,
+            (_, _) => ToastHost.Visibility = Toast.IsOpen ? Visibility.Visible : Visibility.Collapsed);
+        UpdateBar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty,
+            (_, _) => UpdateHost.Visibility = UpdateBar.IsOpen ? Visibility.Visible : Visibility.Collapsed);
+        foreach (var host in new[] { ToastHost, UpdateHost })
+        {
+            host.Shadow = new ThemeShadow();
+            host.Translation = new System.Numerics.Vector3(0, 0, 24);
+        }
+
         Map.ViewChanged += UpdateZoomText;
         Map.Notify += m => ShowToast(m, InfoBarSeverity.Informational);
         Map.HintChanged += h => StatusText.Text = h ?? DefaultHint;
+        Map.OpenLinkRequested += n => _ = OpenLinkAsync(n);
+        Closed += (_, _) => Map.Shutdown();
         BuildStyleMenu();
         AddAccelerators();
         PanelToggle.IsChecked = _settings.ShowProperties;
@@ -172,6 +185,9 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.S, VirtualKeyModifiers.Control, () => _ = SaveAsync(saveAs: false));
         Add(VirtualKey.S, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, () => _ = SaveAsync(saveAs: true));
         Add(VirtualKey.E, VirtualKeyModifiers.Control, () => _ = ExportPngAsync());
+        Add(VirtualKey.E, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, () => _ = ExportPdfAsync());
+        Add(VirtualKey.P, VirtualKeyModifiers.Control, () => _ = PrintAsync());
+        Add(VirtualKey.Left, VirtualKeyModifiers.Menu, () => _ = GoBackAsync());
         Add(VirtualKey.F1, VirtualKeyModifiers.None, () => _ = ShowHelpAsync());
     }
 
@@ -200,10 +216,22 @@ public sealed partial class MainWindow : Window
         UpdateCounts();
     }
 
+    private bool _propertiesPending;
+
+    /// <summary>
+    /// Panel przebudowujemy raz, gdy interfejs jest bezczynny — seria zmian zaznaczenia (np. kilka kliknięć z Ctrl,
+    /// Zaznacz wszystko) nie przebudowuje go po kilkadziesiąt razy.
+    /// </summary>
     private void OnSelectionChanged()
     {
-        RebuildProperties();
         UpdateCounts();
+        if (_propertiesPending) return;
+        _propertiesPending = true;
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            _propertiesPending = false;
+            RebuildProperties();
+        });
     }
 
     private void UpdateTitle()
@@ -360,7 +388,13 @@ public sealed partial class MainWindow : Window
         L("Ctrl+C / Ctrl+X / Ctrl+V — kopiuj / wytnij / wklej (wklejony tekst z wcięciami staje się gałęziami) · Ctrl+D — duplikuj");
         L("Ctrl+L — połącz strzałką (dwa zaznaczone kafelki albo wskaż drugi) · Ctrl+R — uporządkuj gałęzie · Ctrl+/ — zwiń/rozwiń");
         L("Ctrl+B / Ctrl+I — pogrubienie / kursywa · Ctrl+0 — cała mapa · Ctrl+1 — 100% · Ctrl++ / Ctrl+− — powiększenie");
-        L("Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S — nowa / otwórz / zapisz / zapisz jako · Ctrl+E — eksport PNG");
+        L("Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S — nowa / otwórz / zapisz / zapisz jako");
+        L("Ctrl+P — drukuj · Ctrl+Shift+E — PDF · Ctrl+E — obraz PNG\n");
+        H("Znaczniki i linki");
+        L("Znaczniki (priorytet, postęp, emoji) — panel po prawej albo menu kontekstowe kafelka");
+        L("Link w kafelku: adres strony albo inna mapa .mapo / dowolny plik (panel → Link)");
+        L("Ctrl+klik na kafelku albo klik w niebieski znaczek — otwiera link; inna mapa otwiera się w tym oknie");
+        L("Alt+← albo strzałka „wstecz” na pasku — powrót do poprzedniej mapy");
         var dlg = new ContentDialog
         {
             Title = "Obsługa MapoMyślacza",

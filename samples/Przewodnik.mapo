@@ -4,7 +4,7 @@
   "title": "Przewodnik po MapoMyślaczu",
   "nodes": [
     {
-      "id": "25fc146ifw",
+      "id": "ehyas0xi7e",
       "text": "MapoMyślacz",
       "style": {
         "shape": "rounded",
@@ -14,56 +14,56 @@
       }
     },
     {
-      "id": "y10xchh985",
+      "id": "625xx4uxkc",
       "text": "Kafelki",
       "x": 188,
-      "parent": "25fc146ifw"
+      "parent": "ehyas0xi7e"
     },
     {
-      "id": "14ypq7mt7m",
+      "id": "b820eq15j8",
       "text": "Dwuklik na pustym miejscu\ntworzy nowy kafelek",
       "x": 390,
-      "y": -204,
-      "parent": "y10xchh985"
+      "y": -288,
+      "parent": "625xx4uxkc"
     },
     {
-      "id": "apsi3p5vws",
+      "id": "gjhfl5ftcl",
       "text": "Tab — dziecko\nEnter — rodzeństwo",
       "x": 364,
-      "y": -128,
-      "parent": "y10xchh985"
+      "y": -212,
+      "parent": "625xx4uxkc"
     },
     {
-      "id": "km0irn8xb7",
+      "id": "acddr4vadd",
       "text": "Zacznij pisać, żeby\nzmienić tekst",
       "x": 362,
-      "y": -52,
-      "parent": "y10xchh985"
+      "y": -136,
+      "parent": "625xx4uxkc"
     },
     {
-      "id": "p0t5tdnyjj",
+      "id": "o2kw9tpkis",
       "text": "Kształty i style",
       "x": 349,
-      "y": 114,
-      "parent": "y10xchh985"
+      "y": 30,
+      "parent": "625xx4uxkc"
     },
     {
-      "id": "9dhlad52mb",
+      "id": "aacrqy9jnq",
       "text": "Romb",
       "x": 517,
-      "y": 28,
-      "parent": "p0t5tdnyjj",
+      "y": -56,
+      "parent": "o2kw9tpkis",
       "style": {
         "shape": "diamond",
         "fill": "#FF9595"
       }
     },
     {
-      "id": "as6cfks6pi",
+      "id": "rudj2nkcbr",
       "text": "Owal z kreskami",
       "x": 552,
-      "y": 99,
-      "parent": "p0t5tdnyjj",
+      "y": 15,
+      "parent": "o2kw9tpkis",
       "style": {
         "shape": "pill",
         "border": "#000000",
@@ -72,11 +72,11 @@
       }
     },
     {
-      "id": "ta5c1s1mq6",
+      "id": "ao9mnuv3wo",
       "text": "Ważny",
       "x": 517,
-      "y": 158,
-      "parent": "p0t5tdnyjj",
+      "y": 74,
+      "parent": "o2kw9tpkis",
       "style": {
         "fill": "#7F00AC",
         "fontSize": 18,
@@ -84,11 +84,11 @@
       }
     },
     {
-      "id": "a2wtgt25z7",
+      "id": "ckt5d2uzis",
       "text": "Karteczka",
       "x": 518,
-      "y": 216,
-      "parent": "p0t5tdnyjj",
+      "y": 132,
+      "parent": "o2kw9tpkis",
       "style": {
         "shape": "rectangle",
         "fill": "#FFF4B8",
@@ -98,103 +98,143 @@
       "note": "Każdy kafelek może mieć notatkę — widać ją w panelu po prawej."
     },
     {
-      "id": "l841hlfbrz",
+      "id": "zih45eszt5",
+      "text": "Znaczniki",
+      "x": 331,
+      "y": 242,
+      "parent": "625xx4uxkc"
+    },
+    {
+      "id": "q12x0hch0p",
+      "text": "Priorytet i postęp",
+      "x": 531,
+      "y": 186,
+      "parent": "zih45eszt5",
+      "icons": [
+        "priority-1",
+        "progress-50"
+      ]
+    },
+    {
+      "id": "44xppvx7e1",
+      "text": "Zamek na wzgórzu",
+      "x": 536,
+      "y": 242,
+      "parent": "zih45eszt5",
+      "icons": [
+        "🏰",
+        "⚠️"
+      ]
+    },
+    {
+      "id": "4ig6piw2sa",
+      "text": "Link (Ctrl+klik)",
+      "x": 500,
+      "y": 298,
+      "parent": "zih45eszt5",
+      "link": "https://github.com/dkinvoker/MapoMy-lacz"
+    },
+    {
+      "id": "deyo8mclyy",
       "text": "Strzałki",
       "x": -192,
       "y": 188,
-      "parent": "25fc146ifw"
+      "parent": "ehyas0xi7e"
     },
     {
-      "id": "b31uzk6cea",
+      "id": "donlc7l4zo",
       "text": "Przeciągnij kółko „+”\nna inny kafelek",
       "x": -376,
       "y": 112,
-      "parent": "l841hlfbrz"
+      "parent": "deyo8mclyy"
     },
     {
-      "id": "7ywew5sptl",
+      "id": "78e9w3kxh5",
       "text": "Przeciągnij strzałkę,\nżeby ją wygiąć",
       "x": -374,
       "y": 188,
-      "parent": "l841hlfbrz"
+      "parent": "deyo8mclyy"
     },
     {
-      "id": "juui559ecx",
+      "id": "zzbgvtho5q",
       "text": "Podpis: zaznacz\nstrzałkę i pisz",
       "x": -360,
       "y": 264,
-      "parent": "l841hlfbrz"
+      "parent": "deyo8mclyy"
     },
     {
-      "id": "qb0wj3ve50",
+      "id": "3wtut4mvam",
       "text": "Płótno",
       "x": -187,
       "y": -30,
-      "parent": "25fc146ifw"
+      "parent": "ehyas0xi7e"
     },
     {
-      "id": "hs50wb6gvk",
+      "id": "3k1dqk0t2z",
       "text": "Przeciągnij puste miejsce\n— przesuwanie",
       "x": -381,
       "y": -96,
-      "parent": "qb0wj3ve50"
+      "parent": "3wtut4mvam"
     },
     {
-      "id": "ofslhj03ar",
+      "id": "rymwqy7g75",
       "text": "Shift/Ctrl + przeciągnij\n— zaznaczanie",
       "x": -372,
       "y": -20,
-      "parent": "qb0wj3ve50"
+      "parent": "3wtut4mvam"
     },
     {
-      "id": "4l8cc76v9b",
+      "id": "3fcgh3vcee",
       "text": "Kółko myszy — powiększenie",
       "x": -392,
       "y": 46,
-      "parent": "qb0wj3ve50"
+      "parent": "3wtut4mvam"
     },
     {
-      "id": "k1ovjo3uzf",
+      "id": "tcjtgnpslp",
       "text": "Pliki",
       "x": -180,
       "y": -218,
-      "parent": "25fc146ifw"
+      "parent": "ehyas0xi7e"
     },
     {
-      "id": "nx35j60sut",
+      "id": "8rxifqskjy",
       "text": "*.mapo to czytelny JSON",
       "x": -366,
       "y": -274,
-      "parent": "k1ovjo3uzf"
+      "parent": "tcjtgnpslp"
     },
     {
-      "id": "4o08mh15oz",
+      "id": "23fs9r2959",
       "text": "Import z XMind",
       "x": -334,
       "y": -218,
-      "parent": "k1ovjo3uzf"
+      "parent": "tcjtgnpslp"
     },
     {
-      "id": "yr8bhs1grh",
-      "text": "Eksport do PNG (Ctrl+E)",
-      "x": -363,
+      "id": "cxy7sjibqj",
+      "text": "Druk i PDF (Ctrl+P)",
+      "x": -358,
       "y": -162,
-      "parent": "k1ovjo3uzf"
+      "parent": "tcjtgnpslp",
+      "icons": [
+        "📜"
+      ]
     },
     {
-      "id": "b8nd3y2saa",
+      "id": "4zzj14howi",
       "text": "Swobodny kafelek bez rodzica",
       "x": 70,
-      "y": 270,
+      "y": 300,
       "style": {
         "shape": "ellipse",
         "fill": "#CDEFF7"
       }
     },
     {
-      "id": "1jmwtg7udd",
+      "id": "kcsgz3z0np",
       "text": "Przewodnik",
-      "y": -330,
+      "y": -360,
       "style": {
         "shape": "none",
         "fontSize": 34,
@@ -204,15 +244,15 @@
   ],
   "links": [
     {
-      "id": "js4b9pbh4q",
-      "from": "b8nd3y2saa",
-      "to": "25fc146ifw",
+      "id": "ot6wqagt5t",
+      "from": "4zzj14howi",
+      "to": "ehyas0xi7e",
       "label": "strzałka z podpisem"
     },
     {
-      "id": "rxazjfcf39",
-      "from": "b31uzk6cea",
-      "to": "p0t5tdnyjj",
+      "id": "aco547vl6i",
+      "from": "donlc7l4zo",
+      "to": "o2kw9tpkis",
       "label": "np. tak",
       "style": {
         "color": "#7C3AED",

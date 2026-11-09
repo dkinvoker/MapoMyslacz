@@ -91,8 +91,27 @@ public static class NodeMetrics
     public static Vec Estimate(Node node, ResolvedNodeStyle style)
     {
         var (tw, th) = EstimateText(node.Text, style.FontSize, style.Bold, style.WrapWidth(node));
+        (tw, th) = WithIcons(tw, th, node.Icons?.Count ?? 0, style.FontSize, node.Text.Length > 0);
         var (w, h) = OuterSize(style.Shape, style.FontSize, tw, th);
         return new Vec(Math.Ceiling(w), Math.Ceiling(h));
+    }
+
+    // ------------------------------------------------------------------ znaczniki
+
+    public const double IconGap = 3, IconTextGap = 6;
+
+    /// <summary>Rozmiar znacznika (kółka/emoji) przy danym rozmiarze czcionki.</summary>
+    public static double IconSize(double fontSize) => Math.Round(Math.Max(14, fontSize * 1.2));
+
+    public static double IconsWidth(int count, double fontSize) =>
+        count <= 0 ? 0 : count * IconSize(fontSize) + (count - 1) * IconGap;
+
+    /// <summary>Obszar treści kafelka: znaczniki w rzędzie przed tekstem.</summary>
+    public static (double W, double H) WithIcons(double textW, double textH, int iconCount, double fontSize, bool hasText)
+    {
+        if (iconCount <= 0) return (textW, textH);
+        double iw = IconsWidth(iconCount, fontSize) + (hasText ? IconTextGap : 0);
+        return (iw + (hasText ? textW : 0), Math.Max(hasText ? textH : 0, IconSize(fontSize)));
     }
 
     public static Vec Estimate(MapIndex index, Node node) =>
