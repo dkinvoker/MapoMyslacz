@@ -42,11 +42,11 @@ public sealed partial class MainWindow
     private async Task<bool> ConfirmDiscardAsync()
     {
         Map.CommitEdit();
-        if (!_session.IsDirty) return true;
+        if (!_document.IsDirty) return true;
         var dlg = new ContentDialog
         {
             Title = "Niezapisane zmiany",
-            Content = $"Zapisać zmiany w mapie „{_session.DisplayName}”?",
+            Content = $"Zapisać zmiany w mapie „{_document.DisplayName}”?",
             PrimaryButtonText = "Zapisz",
             SecondaryButtonText = "Nie zapisuj",
             CloseButtonText = "Anuluj",
@@ -116,7 +116,7 @@ public sealed partial class MainWindow
     private async Task NewAsync()
     {
         if (!await ConfirmDiscardAsync()) return;
-        LoadSession(new MapSession());
+        LoadDocument(new MapDocument());
         ClearBackStack();
     }
 
@@ -142,8 +142,7 @@ public sealed partial class MainWindow
         {
             if (path.EndsWith(".xmind", StringComparison.OrdinalIgnoreCase)) return await ImportXmindFileAsync(path);
             if (IsOutlineFile(path)) return ImportOutlineFile(path);
-            var session = MapSession.Open(path);
-            LoadSession(session);
+            LoadDocument(MapDocument.Open(path));
             _settings.AddRecent(path);
             return true;
         }
@@ -203,49 +202,39 @@ public sealed partial class MainWindow
         if (await PickOpenAsync(".xmind") is { } path) await OpenFileAsync(path, confirm: false);
     }
 
-    private async Task<bool> ImportXmindFileAsync(string path)
+    /// <summary>Wszystkie arkusze pliku XMind jako zakładki jednej mapy.</summary>
+    private static MapDocument ImportXmindDocument(string path)
     {
         var maps = XmindImporter.Import(path);
-        var map = maps[0];
-        if (maps.Count > 1)
-        {
-            // kilka arkuszy: wybór, który otworzyć
-            var list = new ListView { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 360 };
-            for (int i = 0; i < maps.Count; i++) list.Items.Add($"{i + 1}. {maps[i].Title ?? "Arkusz"} ({maps[i].Nodes.Count} kafelków)");
-            list.SelectedIndex = 0;
-            var dlg = new ContentDialog
-            {
-                Title = "Plik XMind ma kilka arkuszy",
-                Content = list,
-                PrimaryButtonText = "Otwórz",
-                CloseButtonText = "Anuluj",
-                DefaultButton = ContentDialogButton.Primary,
-            };
-            if (await ShowDialogAsync(dlg) != ContentDialogResult.Primary) return false;
-            map = maps[Math.Max(0, list.SelectedIndex)];
-        }
-        map.Title ??= Path.GetFileNameWithoutExtension(path);
-        var session = new MapSession(map);
-        session.MarkDirty();
-        LoadSession(session);
-        ShowToast("Zaimportowano mapę z XMind — zapisz ją (Ctrl+S) jako plik .mapo.", InfoBarSeverity.Informational);
-        return true;
+        if (maps.Count == 1) maps[0].Title ??= Path.GetFileNameWithoutExtension(path);
+        return MapDocument.FromMaps(maps);
+    }
+
+    private Task<bool> ImportXmindFileAsync(string path)
+    {
+        var doc = ImportXmindDocument(path);
+        doc.MarkDirty();
+        LoadDocument(doc);
+        ShowToast(doc.Sheets.Count > 1
+            ? $"Zaimportowano mapę z XMind ({doc.Sheets.Count} arkusze — zakładki na dole) — zapisz ją (Ctrl+S) jako plik .mapo."
+            : "Zaimportowano mapę z XMind — zapisz ją (Ctrl+S) jako plik .mapo.", InfoBarSeverity.Informational);
+        return Task.FromResult(true);
     }
 
     /// <summary>Zapis (albo „Zapisz jako”). Zwraca false, gdy użytkownik zrezygnował albo wystąpił błąd.</summary>
     private async Task<bool> SaveAsync(bool saveAs)
     {
         Map.CommitEdit();
-        var path = _session.FilePath;
+        var path = _document.FilePath;
         if (saveAs || path is null)
         {
-            path = await PickSaveAsync(SafeFileName(_session.Map.Title ?? _session.DisplayName), "Mapa myśli MapoMyślacza", MindMap.FileExtension);
+            path = await PickSaveAsync(SafeFileName(_document.Sheets[0].Map.Title ?? _document.DisplayName), "Mapa myśli MapoMyślacza", MindMap.FileExtension);
             if (path is null) return false;
         }
         try
         {
-            bool moved = _session.FilePath != path;
-            _session.SaveAs(path, Map.CurrentView);
+            bool moved = _document.FilePath != path;
+            _document.Save(path, ViewOf);
             _settings.AddRecent(path);
             UpdateTitle();
             if (moved) RefreshBacklinks();
@@ -286,12 +275,11 @@ public sealed partial class MainWindow
             await WhenLoaded;
             if (input.EndsWith(".xmind", StringComparison.OrdinalIgnoreCase))
             {
-                var map = XmindImporter.Import(input)[0];
-                LoadSession(new MapSession(map));
+                LoadDocument(ImportXmindDocument(input));
             }
             else
             {
-                LoadSession(MapSession.Open(input));
+                LoadDocument(MapDocument.Open(input));
             }
             await Task.Delay(150);
             if (pdf) await Map.ExportPdfAsync(Path.GetFullPath(output), _settings.Print.Clone(), MapTitle, AppInfo.FullName);

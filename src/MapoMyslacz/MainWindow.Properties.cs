@@ -42,11 +42,45 @@ public sealed partial class MainWindow
         var nodes = _session.SelectedNodes.Count;
         var links = _session.SelectedLinks.Count;
         var frames = _session.SelectedFrames.Count;
+        var branches = _session.SelectedBranches.Count;
         if (nodes > 0) BuildNodePanel(nodes);
         if (links > 0) BuildLinkPanel(links, separated: nodes > 0);
         if (frames > 0) BuildFramePanel(frames, separated: nodes + links > 0);
-        if (nodes == 0 && links == 0 && frames == 0) BuildMapPanel();
+        if (branches > 0) BuildBranchPanel(branches, separated: nodes + links + frames > 0);
+        if (nodes == 0 && links == 0 && frames == 0 && branches == 0) BuildMapPanel();
         RefreshProperties();
+    }
+
+    private void BuildBranchPanel(int count, bool separated)
+    {
+        if (separated) Add(new Rectangle { Height = 1, Fill = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"], Margin = new Thickness(0, 14, 0, 4) });
+        Header(count == 1 ? "Gałąź" : $"Gałęzie ({count})",
+            "Gałąź łączy kafelek z rodzicem w drzewie i rysuje się sama (Tab, Enter, kółko „+”). Jej kolor przechodzi na dalsze gałęzie.");
+        List<Node> Children() => _session.SelectedBranchChildren.ToList();
+        void EditChildren(Action<Node> change)
+        {
+            if (_refreshing) return;
+            Map.CommitEdit();
+            var c = Children();
+            if (c.Count > 0) _session.Edit(_ => c.ForEach(change));
+        }
+
+        Section("Kolor");
+        Add(Swatches(Styles.BranchPalette.Select(c => c.ToString()).Append("#8A8794").Append("#1E1B26"),
+            () => Children().FirstOrDefault()?.Style?.BranchColor, c => EditChildren(n => MapOps.EditStyle(n, s => s.BranchColor = c)),
+            autoTip: "Automatyczny (dziedziczony / z palety)", allowCustom: true));
+
+        Section("Polecenia");
+        var actions = new VariableSizedWrapGrid { Orientation = Orientation.Horizontal, ItemWidth = 128, ItemHeight = 38, MaximumRowsOrColumns = 2 };
+        actions.Children.Add(ActionButton("", "Odłącz", Map.DeleteSelection));
+        actions.Children.Add(ActionButton("", "Na strzałkę", Map.BranchesToLinks));
+        actions.Children.Add(ActionButton("", "Kafelek", () => _session.Select(Children().Select(n => n.Id))));
+        Add(actions);
+        Add(new TextBlock
+        {
+            Text = "„Odłącz” (albo Delete) — kafelek zostaje w miejscu, ale już bez gałęzi. „Na strzałkę” — zamiast gałęzi zwykła strzałka, którą można wyginać i podpisać.",
+            TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.7, Margin = new Thickness(0, 6, 0, 0),
+        });
     }
 
     private List<MapFrame> SelFrames() => _session.SelectedFrameObjects.ToList();
@@ -136,6 +170,145 @@ public sealed partial class MainWindow
 
     private void EditLinkStyles(Action<LinkStyle> change) => EditLinks(l => MapOps.EditStyle(l, change));
 
+    /// <summary>Wygląd pierwszej zaznaczonej strzałki z uwzględnieniem motywu (null — brak strzałki).</summary>
+    private ResolvedLinkStyle? LinkLook() =>
+        SelLinks().FirstOrDefault() is { } l ? MapThemes.ResolveLink(_session.Map, _session.Index, l) : null;
+
+    /// <summary>Domyślne strzałki mapy (z motywu albo wybrane osobno).</summary>
+    private LinkTheme LinkDefaults => MapThemes.LinksFor(_session.Map);
+
+    // ================================================================== motyw mapy
+
+    private void BuildThemeSection()
+    {
+        Section("Motyw");
+        var grid = new VariableSizedWrapGrid { Orientation = Orientation.Horizontal, ItemWidth = 132, ItemHeight = 74, MaximumRowsOrColumns = 2 };
+        var cards = new List<(Button Card, MapTheme Theme)>();
+        foreach (var t in MapThemes.All)
+        {
+            var theme = t;
+            var card = new Button { Width = 128, Height = 70, Padding = new Thickness(0), CornerRadius = new CornerRadius(8), Content = ThemePreview(theme) };
+            ToolTipService.SetToolTip(card, $"{theme.Name} — {theme.Description}");
+            card.Click += (_, _) =>
+            {
+                if (_refreshing) return;
+                Map.CommitEdit();
+                // własne tło mapy zasłoniłoby tło motywu — przy zmianie motywu wraca do motywu
+                _session.Edit(m =>
+                {
+                    m.Theme = theme == MapThemes.Default ? null : theme.Id;
+                    m.Background = null;
+                });
+            };
+            grid.Children.Add(card);
+            cards.Add((card, theme));
+        }
+        var accent = Xaml.Brush(Editor.MapCanvas.Accent);
+        var stroke = (Brush)Application.Current.Resources["ControlStrongStrokeColorDefaultBrush"];
+        _refreshers.Add(() =>
+        {
+            var current = MapThemes.Find(_session.Map.Theme);
+            foreach (var (c, t) in cards)
+            {
+                c.BorderThickness = new Thickness(t == current ? 3 : 1);
+                c.BorderBrush = t == current ? accent : stroke;
+            }
+        });
+        Add(grid);
+
+        Add(Caption("Strzałki"));
+        var arrows = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        arrows.Items.Add("Jak w motywie");
+        foreach (var lt in MapThemes.LinkThemes) arrows.Items.Add($"{lt.Name} — {lt.Description}");
+        ToolTipService.SetToolTip(arrows, "Domyślny wygląd strzałek — można go łączyć z dowolnym motywem. Strzałki z własnym stylem go zachowują.");
+        arrows.SelectionChanged += (_, _) =>
+        {
+            if (_refreshing || arrows.SelectedIndex < 0) return;
+            string? id = arrows.SelectedIndex == 0 ? null : MapThemes.LinkThemes[arrows.SelectedIndex - 1].Id;
+            if (id == _session.Map.ArrowStyle) return;
+            Map.CommitEdit();
+            _session.Edit(m => m.ArrowStyle = id);
+        };
+        _refreshers.Add(() =>
+        {
+            int i = MapThemes.LinkThemes.ToList().FindIndex(l => l.Id == _session.Map.ArrowStyle);
+            arrows.SelectedIndex = i < 0 ? 0 : i + 1;
+        });
+        Add(arrows);
+
+        var unify = new Button { Content = "Ujednolić z motywem…", Margin = new Thickness(0, 6, 0, 0) };
+        ToolTipService.SetToolTip(unify, "Usuwa własne kolory kafelków i strzałek, żeby cała mapa miała kolory motywu (Ctrl+Z cofa)");
+        unify.Click += (_, _) => _ = UnifyWithThemeAsync();
+        Add(unify);
+        Add(new TextBlock
+        {
+            Text = "Motyw ustala kolory tego, czego kafelki i strzałki nie mają ustawione same. „Ujednolić” usuwa własne kolory — kształty, czcionki i znaczniki zostają.",
+            TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.7, Margin = new Thickness(0, 4, 0, 0),
+        });
+    }
+
+    private async Task UnifyWithThemeAsync()
+    {
+        var dlg = new ContentDialog
+        {
+            Title = "Ujednolić mapę z motywem?",
+            Content = new TextBlock
+            {
+                Text = "Kafelki stracą własne wypełnienia, kolory tekstu, ramek i gałęzi, a strzałki — własne kolory, wzory i grubości. " +
+                       "Kształty, czcionki, znaczniki i wygięcia strzałek zostają. Ctrl+Z cofa całość.",
+                TextWrapping = TextWrapping.Wrap,
+            },
+            PrimaryButtonText = "Ujednolić",
+            CloseButtonText = "Anuluj",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        if (await ShowDialogAsync(dlg) != ContentDialogResult.Primary) return;
+        Map.CommitEdit();
+        int n = 0;
+        _session.Edit(m => n = MapThemes.ClearCustomColors(m));
+        ShowToast(n == 0 ? "Mapa ma już wyłącznie kolory motywu." : $"Ujednolicono: {n} {Plural(n, "element", "elementy", "elementów")}.", InfoBarSeverity.Informational);
+    }
+
+    /// <summary>Miniatura motywu: płótno, temat główny, kafelek, kolory gałęzi i strzałka.</summary>
+    private static FrameworkElement ThemePreview(MapTheme t)
+    {
+        var canvas = t.Canvas ?? Styles.CanvasBackground;
+        var central = Styles.Resolve(null, t.BranchPalette[0], canvas, t, central: true);
+        var node = Styles.Resolve(null, t.BranchPalette[0], canvas, t);
+        var links = Styles.Resolve(null, t.Links, t.BranchPalette[0]);
+        var root = new Microsoft.UI.Xaml.Controls.Canvas { Width = 126, Height = 68, Background = Xaml.Brush(canvas) };
+        Border Pill(ResolvedNodeStyle s, string text, double x, double y, double w) => new Border
+        {
+            Width = w, Height = 16, CornerRadius = new CornerRadius(4),
+            Background = Xaml.Brush(s.Fill), BorderBrush = Xaml.Brush(s.Border), BorderThickness = new Thickness(Math.Min(1.5, s.BorderWidth)),
+            Child = new TextBlock { Text = text, FontSize = 9, Foreground = Xaml.Brush(s.TextColor), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+        }.With(b => { Microsoft.UI.Xaml.Controls.Canvas.SetLeft(b, x); Microsoft.UI.Xaml.Controls.Canvas.SetTop(b, y); });
+        // gałęzie do dwóch dzieci
+        for (int i = 0; i < 2; i++)
+        {
+            var line = new Line { X1 = 52, Y1 = 22, X2 = 70, Y2 = 14 + i * 18, Stroke = Xaml.Brush(t.BranchPalette[i]), StrokeThickness = 2 };
+            root.Children.Add(line);
+        }
+        var arrow = new Line { X1 = 22, Y1 = 30, X2 = 80, Y2 = 52, Stroke = Xaml.Brush(links.Color), StrokeThickness = Math.Min(2, links.Width) };
+        if (Xaml.Dashes(links.Pattern, 2) is { } d) arrow.StrokeDashArray = d;
+        root.Children.Add(arrow);
+        root.Children.Add(Pill(central, "", 6, 14, 46));
+        root.Children.Add(Pill(node, "", 70, 6, 40));
+        root.Children.Add(Pill(node, "", 70, 24, 40));
+        for (int i = 0; i < 5; i++)
+        {
+            var dot = new Ellipse { Width = 7, Height = 7, Fill = Xaml.Brush(t.BranchPalette[i]) };
+            Microsoft.UI.Xaml.Controls.Canvas.SetLeft(dot, 84 + i * 8);
+            Microsoft.UI.Xaml.Controls.Canvas.SetTop(dot, 48);
+            root.Children.Add(dot);
+        }
+        var label = new TextBlock { Text = t.Name, FontSize = 10.5, FontWeight = FontWeights.SemiBold, Foreground = Xaml.Brush(canvas.PrefersLightText ? Rgba.White : Styles.DarkText) };
+        Microsoft.UI.Xaml.Controls.Canvas.SetLeft(label, 6);
+        Microsoft.UI.Xaml.Controls.Canvas.SetTop(label, 50);
+        root.Children.Add(label);
+        return new Border { CornerRadius = new CornerRadius(7), Child = root };
+    }
+
     // ================================================================== panele
 
     private void BuildMapPanel()
@@ -151,6 +324,8 @@ public sealed partial class MainWindow
         });
         title.KeyDown += (_, e) => { if (e.Key == VirtualKey.Enter) Map.Focus(FocusState.Programmatic); };
         Add(title);
+
+        BuildThemeSection();
 
         Section("Tło płótna");
         Add(Swatches(
@@ -217,6 +392,7 @@ public sealed partial class MainWindow
         foreach (var p in Map.CustomPresets.Concat(Styles.Presets)) presets.Children.Add(PresetButton(p));
         Add(presets);
 
+        BuildImageSection(count);
         BuildMarkersSection();
 
         Section("Kształt");
@@ -466,9 +642,10 @@ public sealed partial class MainWindow
         width.ValueChanged += (_, e) =>
         {
             if (double.IsNaN(e.NewValue)) return;
-            EditLinkStyles(s => s.Width = Math.Abs(e.NewValue - Styles.DefaultLinkWidth) < 0.01 ? null : e.NewValue);
+            if (LinkLook() is { } look && Math.Abs(look.Width - e.NewValue) < 0.01) return;
+            EditLinkStyles(s => s.Width = Math.Abs(e.NewValue - LinkDefaults.Width) < 0.01 ? null : e.NewValue);
         };
-        _refreshers.Add(() => width.Value = SelLinks().FirstOrDefault()?.Style?.Width ?? Styles.DefaultLinkWidth);
+        _refreshers.Add(() => width.Value = LinkLook()?.Width ?? LinkDefaults.Width);
         row.Children.Add(width);
         row.Children.Add(new TextBlock { Text = "grubość", VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7, FontSize = 12 });
         Add(row);
@@ -476,24 +653,24 @@ public sealed partial class MainWindow
         foreach (var (p, label) in new[] { (LinePattern.Solid, "Ciągła"), (LinePattern.Dashed, "Kreski"), (LinePattern.Dotted, "Kropki") })
         {
             var pat = p;
-            patternRow.Children.Add(TextToggle(label, () => Styles.Resolve(SelLinks().FirstOrDefault()?.Style).Pattern == pat,
-                () => EditLinkStyles(s => s.Pattern = pat == LinePattern.Dashed ? null : pat)));
+            patternRow.Children.Add(TextToggle(label, () => LinkLook()?.Pattern == pat,
+                () => EditLinkStyles(s => s.Pattern = pat == LinkDefaults.Pattern ? null : pat)));
         }
         Add(patternRow);
 
         Section("Groty i kształt");
         var arrows = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        arrows.Children.Add(TextToggle("◀ Początek", () => Styles.Resolve(SelLinks().FirstOrDefault()?.Style).ArrowStart,
-            () => EditLinkStyles(s => s.ArrowStart = Styles.Resolve(s).ArrowStart ? null : true)));
-        arrows.Children.Add(TextToggle("Koniec ▶", () => Styles.Resolve(SelLinks().FirstOrDefault()?.Style).ArrowEnd,
-            () => EditLinkStyles(s => s.ArrowEnd = Styles.Resolve(s).ArrowEnd ? false : null)));
+        arrows.Children.Add(TextToggle("◀ Początek", () => LinkLook()?.ArrowStart == true,
+            () => { bool on = LinkLook()?.ArrowStart == true; EditLinkStyles(s => s.ArrowStart = !on); }));
+        arrows.Children.Add(TextToggle("Koniec ▶", () => LinkLook()?.ArrowEnd == true,
+            () => { bool on = LinkLook()?.ArrowEnd == true; EditLinkStyles(s => s.ArrowEnd = !on); }));
         Add(arrows);
         var curve = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(0, 4, 0, 0) };
         foreach (var (c, name) in new[] { (LinkCurve.Curved, "Łuk"), (LinkCurve.Straight, "Prosta"), (LinkCurve.Elbow, "Łamana") })
         {
             var cv = c;
-            curve.Children.Add(TextToggle(name, () => Styles.Resolve(SelLinks().FirstOrDefault()?.Style).Curve == cv,
-                () => EditLinks(l => Editor.MapCanvas.SetCurve(l, cv))));
+            curve.Children.Add(TextToggle(name, () => LinkLook()?.Curve == cv,
+                () => EditLinks(l => Editor.MapCanvas.SetCurve(_session.Map, l, cv))));
         }
         Add(curve);
 

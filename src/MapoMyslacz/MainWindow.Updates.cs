@@ -120,7 +120,7 @@ public sealed partial class MainWindow
         if (!await ConfirmDiscardAsync()) return;
         try
         {
-            Updater.Restart(_session.FilePath);
+            Updater.Restart(_document.FilePath);
         }
         catch (Exception ex)
         {

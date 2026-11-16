@@ -69,18 +69,24 @@ public static class Styles
     ];
 
     /// <param name="canvas">Kolor płótna — od niego zależy automatyczny kolor tekstu na przezroczystym kafelku.</param>
-    public static ResolvedNodeStyle Resolve(NodeStyle? s, Rgba branchColor, Rgba? canvas = null)
+    /// <param name="theme">Motyw mapy — domyślne kolory tego, czego kafelek nie ustawia sam.</param>
+    /// <param name="central">Temat główny (bez rodzica, z gałęziami) — motyw może dać mu inny kolor.</param>
+    public static ResolvedNodeStyle Resolve(NodeStyle? s, Rgba branchColor, Rgba? canvas = null, MapTheme? theme = null, bool central = false)
     {
+        theme ??= MapThemes.Default;
         var shape = s?.Shape ?? NodeShape.Rounded;
-        var fill = shape == NodeShape.None ? Rgba.Transparent : Rgba.Parse(s?.Fill, DefaultFill);
+        var themeFill = central ? theme.CentralFill : theme.NodeFill;
+        var fill = shape == NodeShape.None ? Rgba.Transparent : Rgba.Parse(s?.Fill, themeFill);
         var behindText = fill.A > 96 ? fill : canvas ?? CanvasBackground;
+        // kolor tekstu motywu pasuje do jego wypełnienia — przy własnym wypełnieniu dobieramy czytelny automatycznie
+        var themeText = s?.Fill is null && shape != NodeShape.None ? (central ? theme.CentralText : theme.NodeText) : null;
         var text = s?.TextColor is { } tc
             ? Rgba.Parse(tc, DarkText)
-            : (behindText.PrefersLightText ? LightText : DarkText);
-        double bw = s?.BorderWidth ?? 0;
+            : themeText ?? (behindText.PrefersLightText ? LightText : DarkText);
+        double bw = s?.BorderWidth ?? (shape == NodeShape.None ? 0 : theme.NodeBorderWidth);
         return new ResolvedNodeStyle(
             shape, fill, text,
-            Rgba.Parse(s?.Border, DefaultBorder),
+            Rgba.Parse(s?.Border, theme.NodeBorder),
             Math.Clamp(bw, 0, 24),
             s?.BorderPattern ?? LinePattern.Solid,
             Math.Clamp(s?.FontSize ?? DefaultFontSize, 6, 120),
@@ -91,21 +97,26 @@ public static class Styles
             branchColor);
     }
 
-    public static ResolvedLinkStyle Resolve(LinkStyle? s) => new(
-        Rgba.Parse(s?.Color, DefaultLinkColor),
-        Math.Clamp(s?.Width ?? DefaultLinkWidth, 0.5, 24),
-        s?.Pattern ?? LinePattern.Dashed,
-        s?.ArrowStart ?? false,
-        s?.ArrowEnd ?? true,
-        s?.Curve ?? LinkCurve.Curved,
+    public static ResolvedLinkStyle Resolve(LinkStyle? s) => Resolve(s, MapThemes.Default.Links, null);
+
+    /// <param name="links">Styl strzałek mapy (z motywu albo wybrany osobno) — domyślne wartości.</param>
+    /// <param name="sourceBranch">Kolor gałęzi kafelka, z którego strzałka wychodzi (dla stylu „Kolorowe”).</param>
+    public static ResolvedLinkStyle Resolve(LinkStyle? s, LinkTheme links, Rgba? sourceBranch) => new(
+        Rgba.Parse(s?.Color, links.BranchColored && sourceBranch is { } b ? b : links.Color ?? DefaultLinkColor),
+        Math.Clamp(s?.Width ?? links.Width, 0.5, 24),
+        s?.Pattern ?? links.Pattern,
+        s?.ArrowStart ?? links.ArrowStart,
+        s?.ArrowEnd ?? links.ArrowEnd,
+        s?.Curve ?? links.Curve,
         Math.Clamp(s?.FontSize ?? DefaultLinkFontSize, 6, 72));
 
     /// <summary>
     /// Kolor gałęzi kafelka: własny (BranchColor) albo dziedziczony po przodkach; dla dzieci tematu głównego
     /// — kolejne kolory palety.
     /// </summary>
-    public static Rgba BranchColorFor(MapIndex index, Node node)
+    public static Rgba BranchColorFor(MapIndex index, Node node, MapTheme? theme = null)
     {
+        var palette = (theme ?? MapThemes.Default).BranchPalette;
         var current = node;
         Node? childOfRoot = null;
         int guard = 0;
@@ -117,12 +128,12 @@ public static class Styles
             childOfRoot = current;
             current = parent;
         }
-        if (childOfRoot is null || current is null) return BranchPalette[0];
+        if (childOfRoot is null || current is null) return palette[0];
         var siblings = index.ChildrenOf(current.Id);
         int i = 0;
         for (; i < siblings.Count; i++)
             if (ReferenceEquals(siblings[i], childOfRoot)) break;
-        return BranchPalette[i % BranchPalette.Length];
+        return palette[i % palette.Length];
     }
 
     public static readonly IReadOnlyList<StylePreset> Presets =

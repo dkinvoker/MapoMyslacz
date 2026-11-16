@@ -62,9 +62,12 @@ public sealed partial class MapCanvas : Grid
         if (TraceDraw is not null) MapScene.Profiler = Trace;
         _canvas.CreateResources += (_, e) =>
         {
-            // utrata urządzenia graficznego (np. zmiana karty/sterownika) — geometrie trzeba utworzyć od nowa
-            if (e.Reason != CanvasCreateResourcesReason.FirstTime) RebuildAll();
+            // utrata urządzenia graficznego (np. zmiana karty/sterownika) — geometrie i bitmapy trzeba utworzyć od nowa
+            if (e.Reason == CanvasCreateResourcesReason.FirstTime) return;
+            MapScene.ResetBitmaps();
+            RebuildAll();
         };
+        MapScene.ImageLoaded += OnImageLoaded;
         _editorLayer.RenderTransform = _editorTransform;
         Children.Add(_canvas);
         Children.Add(_editorLayer);
@@ -83,6 +86,7 @@ public sealed partial class MapCanvas : Grid
     /// <summary>Zwalnia powierzchnię Win2D przy zamykaniu okna.</summary>
     public void Shutdown()
     {
+        MapScene.ImageLoaded -= OnImageLoaded;
         StopAnimation();
         DropSceneCache();
         DropMinimap();
@@ -331,9 +335,10 @@ public sealed partial class MapCanvas : Grid
     {
         var map = _session.Map;
         bool dark = ActualTheme == ElementTheme.Dark;
+        // tło: własne mapy, potem motywu, a w motywie domyślnym — jasne albo ciemne jak Windows
         _canvasColor = map.Background is { } bg && Rgba.TryParse(bg, out var c)
             ? c
-            : dark ? Styles.DarkCanvasBackground : Styles.CanvasBackground;
+            : MapThemes.Find(map.Theme).Canvas ?? (dark ? Styles.DarkCanvasBackground : Styles.CanvasBackground);
         _scene.EditingId = _editNodeId;
         _scene.Build(map, _session.Index, _canvasColor);
         _sceneVersion++;
@@ -530,6 +535,11 @@ public sealed partial class MapCanvas : Grid
         var accent = C(Accent);
         DrawSearchHits(ds, px);
 
+        if (_session.SelectedBranches.Count > 0)
+            foreach (var b in _scene.Branches)
+                if (b.Geometry is not null && _session.SelectedBranches.Contains(b.ChildId))
+                    ds.DrawGeometry(b.Geometry, C(Accent.WithAlpha(110)), (float)b.Width + 7 * px, RoundCaps);
+
         foreach (var fv in _scene.Frames)
             if (_session.SelectedFrames.Contains(fv.Id))
                 ds.DrawRoundedRectangle(R(fv.Box.Inflate(3 * px)), 12 + 3 * px, 12 + 3 * px, accent, 2.5f * px);
@@ -568,7 +578,7 @@ public sealed partial class MapCanvas : Grid
             var r = new Windows.Foundation.Rect(wh.X - 4 * px, wh.Y - 4 * px, 8 * px, 8 * px);
             ds.FillRectangle(r, Microsoft.UI.Colors.White);
             ds.DrawRectangle(r, accent, 1.5f * px);
-            if (_drag == DragMode.ResizeWidth && _session.SingleNode is { Width: { } wrap } rn && _nodes.TryGetValue(rn.Id, out var rv))
+            if (_drag == DragMode.ResizeWidth && _resizeImage is null && _session.SingleNode is { Width: { } wrap } rn && _nodes.TryGetValue(rn.Id, out var rv))
             {
                 // granica zawijania tekstu
                 double x = rv.X - rv.Width / 2 + rv.TextX + wrap;
@@ -620,7 +630,7 @@ public sealed partial class MapCanvas : Grid
 
     // ================================================================== trafianie myszką
 
-    private enum HitKind { None, Node, Badge, LinkMark, Link, LinkHandle1, LinkHandle2, ConnectHandle, WidthHandle, Frame }
+    private enum HitKind { None, Node, Badge, LinkMark, Link, LinkHandle1, LinkHandle2, ConnectHandle, WidthHandle, Frame, Branch }
 
     private readonly record struct Hit(HitKind Kind, string? Id = null);
 
@@ -657,6 +667,18 @@ public sealed partial class MapCanvas : Grid
         foreach (var lv in _links.Values)
             if (lv.HitTest(w, Math.Max(6 * px, (lv.Style?.Width ?? 2) / 2 + 3 * px))) best = lv;
         if (best is not null) return new Hit(HitKind.Link, best.Id);
+        // gałęzie drzewa (rodzic → dziecko) — też da się je kliknąć
+        foreach (var b in _scene.Branches)
+        {
+            double tol = Math.Max(6 * px, b.Width / 2 + 3 * px);
+            if (b.Geometry is null || !b.Bounds.Inflate(tol).Contains(w)) continue;
+            Vec? prev = null;
+            foreach (var q in b.Curve.Flatten(16))
+            {
+                if (prev is { } pq && GeometryMath.DistanceToSegment(w, pq, q) <= tol) return new Hit(HitKind.Branch, b.ChildId);
+                prev = q;
+            }
+        }
         // ramki łapie się za nagłówek albo krawędź — wnętrze to zwykłe płótno (przesuwanie, zaznaczanie)
         if (_scene.FrameAt(w, 6 * px) is { } fv) return new Hit(HitKind.Frame, fv.Id);
         return new Hit(HitKind.None);

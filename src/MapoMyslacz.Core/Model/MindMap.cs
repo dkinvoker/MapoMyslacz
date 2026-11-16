@@ -21,8 +21,14 @@ public sealed class MindMap
 
     public string? Title { get; set; }
 
-    /// <summary>Kolor tła płótna (#RRGGBB). Brak = domyślny biały.</summary>
+    /// <summary>Kolor tła płótna (#RRGGBB). Brak = z motywu (w domyślnym: jasne albo ciemne jak Windows).</summary>
     public string? Background { get; set; }
+
+    /// <summary>Motyw mapy (id z <see cref="MapThemes"/>; brak = domyślny).</summary>
+    public string? Theme { get; set; }
+
+    /// <summary>Styl strzałek wybrany osobno (id z <see cref="MapThemes.LinkThemes"/>; brak = z motywu).</summary>
+    public string? ArrowStyle { get; set; }
 
     /// <summary>Zapamiętany widok (środek ekranu w układzie mapy i powiększenie).</summary>
     public ViewState? View { get; set; }
@@ -33,6 +39,28 @@ public sealed class MindMap
 
     /// <summary>Ramki wokół grup kafelków (brak = żadnych; starsze wersje programu po prostu je pomijają).</summary>
     public List<Frame>? Frames { get; set; }
+
+    /// <summary>
+    /// Obrazki kafelków: id → „data:image/png;base64,…”. Id pochodzi z zawartości, więc ten sam obrazek jest zapisany
+    /// raz. W pamięci to wspólny magazyn sesji (poza historią cofania); do pliku trafiają tylko używane obrazki.
+    /// </summary>
+    public Dictionary<string, string>? Images { get; set; }
+
+    /// <summary>
+    /// Kolejne arkusze pliku (zakładki). Ta mapa to arkusz pierwszy — dzięki temu starsze wersje programu otwierają
+    /// plik normalnie (widzą pierwszy arkusz). Arkusze nie mają własnych obrazków ani podarkuszy.
+    /// </summary>
+    public List<MindMap>? Sheets { get; set; }
+}
+
+/// <summary>Obrazek w kafelku (nad tekstem): odwołanie do <see cref="MindMap.Images"/> i rozmiar na mapie.</summary>
+public sealed class NodeImage
+{
+    public string Id { get; set; } = "";
+    public double Width { get; set; }
+    public double Height { get; set; }
+
+    public NodeImage Clone() => (NodeImage)MemberwiseClone();
 }
 
 /// <summary>
@@ -89,6 +117,9 @@ public sealed class Node
 
     /// <summary>Link: adres internetowy albo ścieżka do pliku (np. innej mapy .mapo — względna wobec tej mapy). Ctrl+klik otwiera.</summary>
     public string? Link { get; set; }
+
+    /// <summary>Obrazek nad tekstem kafelka.</summary>
+    public NodeImage? Image { get; set; }
 }
 
 /// <summary>

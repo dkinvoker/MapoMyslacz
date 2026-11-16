@@ -51,14 +51,21 @@ public sealed class AutoSaveStore
     public bool Exists => File.Exists(MetaPath);
 
     /// <summary>Zapisuje bieżący stan mapy. Najpierw mapa, potem opis — opis bez mapy nigdy nie powstanie.</summary>
-    public void Write(MapSession session, ViewState? view, int processId, long processStartTicks)
+    public void Write(MapSession session, ViewState? view, int processId, long processStartTicks) =>
+        Write(path => session.WriteCopy(path, view), session.FilePath, session.Map.Title, processId, processStartTicks);
+
+    /// <summary>Zapisuje cały plik (wszystkie arkusze).</summary>
+    public void Write(MapDocument document, Func<MapSession, ViewState?> viewOf, int processId, long processStartTicks) =>
+        Write(path => document.WriteCopy(path, viewOf), document.FilePath, document.Sheets[0].Map.Title, processId, processStartTicks);
+
+    private void Write(Action<string> writeMap, string? originalPath, string? title, int processId, long processStartTicks)
     {
         Directory.CreateDirectory(Folder);
-        session.WriteCopy(MapPath, view);
+        writeMap(MapPath);
         var info = new AutoSaveInfo
         {
-            OriginalPath = session.FilePath,
-            Title = session.Map.Title,
+            OriginalPath = originalPath,
+            Title = title,
             SavedAt = DateTime.Now,
             ProcessId = processId,
             ProcessStartTicks = processStartTicks,

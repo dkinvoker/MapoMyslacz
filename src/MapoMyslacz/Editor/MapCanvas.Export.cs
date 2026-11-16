@@ -25,6 +25,7 @@ public sealed partial class MapCanvas
     public async Task ExportPngAsync(string path, double scale = 2, double margin = 40)
     {
         if (ExportBounds is not { } content) throw new InvalidOperationException("Mapa jest pusta — nie ma czego eksportować.");
+        await _scene.EnsureImagesAsync();
         var b = content.Inflate(margin);
         var dev = SharedDevice;
         double maxPx = dev.MaximumBitmapSizeInPixels * 0.98;
@@ -40,11 +41,15 @@ public sealed partial class MapCanvas
         await rt.SaveAsync(path, CanvasBitmapFileFormat.Png);
     }
 
-    /// <summary>Scena do druku: kolor tła z ustawień (białe tło zmienia też automatyczne kolory tekstu).</summary>
-    internal MapScene CreatePrintScene(PrintOptions o)
+    /// <summary>
+    /// Scena do druku: kolor tła z ustawień (białe tło zmienia też automatyczne kolory tekstu). Czeka na obrazki —
+    /// kartka rysuje się od razu w całości.
+    /// </summary>
+    internal async Task<MapScene> CreatePrintSceneAsync(PrintOptions o)
     {
         var scene = new MapScene();
         scene.Build(_session.Map, _session.Index, o.WhiteBackground ? Rgba.White : _canvasColor);
+        await scene.EnsureImagesAsync();
         return scene;
     }
 
@@ -120,7 +125,7 @@ public sealed partial class MapCanvas
         if (ExportBounds is not { } content) throw new InvalidOperationException("Mapa jest pusta — nie ma czego eksportować.");
         var (pw, ph) = PrintLayout.PaperMm(o.Paper);
         var plan = PrintLayout.Plan(content.Inflate(4), pw, ph, o);
-        using var scene = CreatePrintScene(o);
+        using var scene = await CreatePrintSceneAsync(o);
         var pages = new List<PdfPage>();
         int n = 0;
         foreach (var page in plan.Pages)

@@ -20,6 +20,9 @@ public sealed class MapFragment
 
     /// <summary>Ramki, których wszystkie kafelki są w kawałku.</summary>
     public List<Frame>? Frames { get; set; }
+
+    /// <summary>Obrazki kafelków z kawałka (żeby wklejenie do innej mapy też je miało).</summary>
+    public Dictionary<string, string>? Images { get; set; }
 }
 
 /// <summary>Operacje edycyjne na mapie. Bez interfejsu — testowane jednostkowo.</summary>
@@ -204,6 +207,21 @@ public static class MapOps
         return true;
     }
 
+    /// <summary>
+    /// Zamienia gałąź drzewa (rodzic → <paramref name="childId"/>) na zwykłą strzałkę w tym samym kolorze: kafelek
+    /// zostaje na miejscu jako swobodny, a strzałkę można już zaznaczać, wyginać i podpisywać.
+    /// </summary>
+    public static Link? BranchToLink(MindMap map, string childId)
+    {
+        var index = new MapIndex(map);
+        if (index.Get(childId) is not { Parent: { } parentId } child || index.Get(parentId) is null) return null;
+        var color = Styles.BranchColorFor(index, child).ToString();
+        child.Parent = null;
+        var link = AddLink(map, parentId, childId) ?? map.Links.FirstOrDefault(l => l.From == parentId && l.To == childId);
+        if (link is not null) EditStyle(link, s => { s.Color = color; s.Pattern = LinePattern.Solid; });
+        return link;
+    }
+
     /// <summary>Nowa strzałka (null, gdy łączyłaby kafelek sam ze sobą albo taka już jest).</summary>
     public static Link? AddLink(MindMap map, string from, string to, string? label = null)
     {
@@ -240,6 +258,7 @@ public static class MapOps
             if (ids.Contains(l.From) && ids.Contains(l.To)) frag.Links.Add(CloneLink(l));
         foreach (var f in map.Frames ?? [])
             if (f.Nodes.Count > 0 && f.Nodes.All(ids.Contains)) (frag.Frames ??= []).Add(CloneFrame(f));
+        frag.Images = MapImages.Referenced(frag.Nodes, map.Images);
         return frag;
     }
 
@@ -259,9 +278,16 @@ public static class MapOps
             shift = c - new Vec((minX + maxX) / 2, (minY + maxY) / 2);
         }
         var added = new List<Node>();
+        // obrazki z innej mapy trafiają do magazynu tej (id z zawartości — powtórki się nie dublują)
+        if (fragment.Images is { Count: > 0 } images)
+        {
+            var store = map.Images ??= [];
+            foreach (var (id, data) in images) store.TryAdd(id, data);
+        }
         foreach (var n in fragment.Nodes)
         {
             var copy = CloneNode(n, n.Parent is not null && map2.TryGetValue(n.Parent, out var np) ? np : null);
+            if (copy.Image is { } img && map.Images?.ContainsKey(img.Id) != true) copy.Image = null;
             copy.Id = map2[n.Id];
             copy.X = Math.Round(n.X + shift.X);
             copy.Y = Math.Round(n.Y + shift.Y);
@@ -294,6 +320,7 @@ public static class MapOps
     {
         Id = n.Id, Text = n.Text, X = n.X, Y = n.Y, Parent = parent, Style = n.Style?.Clone(),
         Note = n.Note, Collapsed = n.Collapsed, Width = n.Width, Icons = n.Icons?.ToList(), Link = n.Link,
+        Image = n.Image?.Clone(),
     };
 
     public static Link CloneLink(Link l) => new()
@@ -453,6 +480,13 @@ public static class MapOps
         foreach (var n in map.Nodes)
         {
             n.Text ??= "";
+            // obrazek bez danych (sprawdzamy tylko, gdy mapa ma magazyn — migawki historii cofania go nie mają)
+            if (n.Image is { } img && (string.IsNullOrEmpty(img.Id) || img.Width <= 0 || img.Height <= 0
+                                       || (map.Images is { } store && !store.ContainsKey(img.Id))))
+            {
+                n.Image = null;
+                fixes++;
+            }
             if (string.IsNullOrEmpty(n.Id) || !seen.Add(n.Id))
             {
                 n.Id = Ids.New();
@@ -521,6 +555,20 @@ public static class MapOps
             }
             fixes += frames.RemoveAll(f => f.Nodes.Count == 0);
             if (frames.Count == 0) map.Frames = null;
+        }
+        // arkusze: każdy naprawiamy osobno (obrazki sprawdzamy z magazynu pliku, który jest w pierwszym arkuszu)
+        if (map.Sheets is { } sheets)
+        {
+            sheets.RemoveAll(s => s is null);
+            foreach (var sheet in sheets)
+            {
+                sheet.Sheets = null;
+                sheet.Images = map.Images;
+                fixes += Repair(sheet);
+                sheet.Images = null;
+                sheet.Format = MindMap.FormatName;
+            }
+            if (sheets.Count == 0) map.Sheets = null;
         }
         return fixes;
     }

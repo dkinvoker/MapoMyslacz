@@ -1,5 +1,6 @@
 using MapoMyslacz.Core.Editing;
 using MapoMyslacz.Core.Model;
+using MapoMyslacz.Editor;
 using MapoMyslacz.Services;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
@@ -18,6 +19,7 @@ namespace MapoMyslacz;
 public sealed partial class MainWindow : Window
 {
     private MapSession _session = null!;
+    private MapDocument _document = null!;
     private bool _forceClose, _dialogOpen, _loaded;
     private readonly AppSettings _settings = AppSettings.Current;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _toastTimer;
@@ -61,6 +63,7 @@ public sealed partial class MainWindow : Window
         Map.OpenLinkRequested += n => _ = OpenLinkAsync(n);
         Map.FocusChanged += OnFocusChanged;
         Map.PointerInteractionEnded += OnPointerInteractionEnded;
+        Map.PickImageRequested += id => _ = PickImageAsync(id);
         Map.ShowMinimap = _settings.ShowMinimap;
         Map.ShowGrid = _settings.ShowGrid;
         Closed += (_, _) => Map.Shutdown();
@@ -69,36 +72,34 @@ public sealed partial class MainWindow : Window
         PanelToggle.IsChecked = _settings.ShowProperties;
         PropsPanel.Visibility = _settings.ShowProperties ? Visibility.Visible : Visibility.Collapsed;
         StatusText.Text = DefaultHint;
-        LoadSession(OpenAtStartup(openPath) ?? new MapSession());
+        LoadDocument(OpenAtStartup(openPath) ?? new MapDocument());
     }
 
     private string? _startupError;
 
     /// <summary>Mapa z linii poleceń (dwuklik w Eksploratorze) — wczytana od razu, żeby okno pokazało się już z nią.</summary>
-    private MapSession? OpenAtStartup(string? path)
+    private MapDocument? OpenAtStartup(string? path)
     {
         if (path is null) return null;
         try
         {
             if (path.EndsWith(".xmind", StringComparison.OrdinalIgnoreCase))
             {
-                var map = Core.Import.XmindImporter.Import(path)[0];
-                map.Title ??= Path.GetFileNameWithoutExtension(path);
-                var imported = new MapSession(map);
-                imported.MarkDirty();
-                return imported;
+                var doc = ImportXmindDocument(path);
+                doc.MarkDirty();
+                return doc;
             }
             if (IsOutlineFile(path))
             {
                 var outline = MarkdownOutline.Parse(File.ReadAllText(path, System.Text.Encoding.UTF8));
                 outline.Title ??= Path.GetFileNameWithoutExtension(path);
-                var imported = new MapSession(outline);
+                var imported = MapDocument.FromMaps([outline]);
                 imported.MarkDirty();
                 return imported;
             }
-            var s = MapSession.Open(path);
+            var opened = MapDocument.Open(path);
             _settings.AddRecent(path);
-            return s;
+            return opened;
         }
         catch (Exception ex)
         {
@@ -158,7 +159,7 @@ public sealed partial class MainWindow : Window
     private async void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         SaveWindowPlacement();
-        if (_forceClose || !_session.IsDirty) return;
+        if (_forceClose || !_document.IsDirty) return;
         args.Cancel = true;
         if (_dialogOpen) return;
         if (await ConfirmDiscardAsync())
@@ -208,11 +209,30 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.F3, VirtualKeyModifiers.None, () => StepSearch(1));
         Add(VirtualKey.F3, VirtualKeyModifiers.Shift, () => StepSearch(-1));
         Add(VirtualKey.F, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, Map.ToggleFocus);
+        Add(VirtualKey.PageDown, VirtualKeyModifiers.Control, () => StepSheet(1));
+        Add(VirtualKey.PageUp, VirtualKeyModifiers.Control, () => StepSheet(-1));
+        Add(VirtualKey.T, VirtualKeyModifiers.Control, AddSheet);
     }
 
     // ================================================================== sesja
 
-    private void LoadSession(MapSession s)
+    /// <summary>Nowy plik w oknie (nowa mapa, otwarcie, import, przywrócenie) — pokazuje jego pierwszy arkusz.</summary>
+    private void LoadDocument(MapDocument d)
+    {
+        if (_document is not null) _document.SheetsChanged -= BuildSheetTabs;
+        _document = d;
+        d.SheetsChanged += BuildSheetTabs;
+        ResetAutoSave();
+        ActivateSession(d.Sheets[0]);
+        RefreshBacklinks();
+        BuildSheetTabs();
+    }
+
+    /// <summary>Jedna mapa jako nowy plik.</summary>
+    private void LoadSession(MapSession s) => LoadDocument(MapDocument.FromSession(s));
+
+    /// <summary>Pokazuje arkusz pliku (sesję) na płótnie i w panelu.</summary>
+    private void ActivateSession(MapSession s)
     {
         if (_session is not null)
         {
@@ -220,16 +240,17 @@ public sealed partial class MainWindow : Window
             _session.SelectionChanged -= OnSelectionChanged;
         }
         _session = s;
-        ResetAutoSave();
         s.Changed += OnSessionChanged;
         s.SelectionChanged += OnSelectionChanged;
         Map.Session = s;
         UpdateTitle();
-        RefreshBacklinks();
         RebuildProperties();
         UpdateCounts();
         RefreshSearch();
     }
+
+    /// <summary>Widok arkusza do zapisu: bieżący z płótna dla aktywnego, zapamiętany dla pozostałych.</summary>
+    private ViewState? ViewOf(MapSession s) => ReferenceEquals(s, _session) ? Map.CurrentView : s.InitialView;
 
     private void OnSessionChanged()
     {
@@ -237,6 +258,7 @@ public sealed partial class MainWindow : Window
         RefreshProperties();
         UpdateCounts();
         RefreshSearch();
+        UpdateSheetTabLabels();
     }
 
     private bool _propertiesPending, _propertiesAfterPointer;
@@ -272,7 +294,9 @@ public sealed partial class MainWindow : Window
 
     private void UpdateTitle()
     {
-        var text = $"{(_session.IsDirty ? "● " : "")}{_session.DisplayName} — {AppInfo.Name} {AppInfo.Version}";
+        int sheet = _document.Sheets.IndexOf(_session);
+        var sheetName = _document.Sheets.Count > 1 && sheet >= 0 ? $" · {_document.SheetName(sheet)}" : "";
+        var text = $"{(_document.IsDirty ? "● " : "")}{_document.DisplayName}{sheetName} — {AppInfo.Name} {AppInfo.Version}";
         TitleText.Text = text;
         Title = text;
     }
@@ -447,14 +471,21 @@ public sealed partial class MainWindow : Window
         if (e.DataView.Contains(StandardDataFormats.StorageItems))
         {
             e.AcceptedOperation = DataPackageOperation.Copy;
-            e.DragUIOverride.Caption = "Otwórz mapę";
+            e.DragUIOverride.Caption = "Otwórz mapę albo wstaw obrazek";
         }
     }
 
     private async void Root_Drop(object sender, DragEventArgs e)
     {
         if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+        var onCanvas = e.GetPosition(Map); // przed pierwszym await — potem argumenty zdarzenia są już nieważne
         var items = await e.DataView.GetStorageItemsAsync();
+        var images = items.OfType<StorageFile>().Where(f => ImagePrep.IsImageFile(f.Path)).ToList();
+        if (images.Count > 0)
+        {
+            await DropImagesAsync(images, onCanvas);
+            return;
+        }
         var file = items.OfType<StorageFile>().FirstOrDefault(f =>
             f.FileType.Equals(MindMap.FileExtension, StringComparison.OrdinalIgnoreCase) ||
             f.FileType.Equals(".xmind", StringComparison.OrdinalIgnoreCase) ||
@@ -462,7 +493,7 @@ public sealed partial class MainWindow : Window
             IsOutlineFile(f.Path));
         if (file is null)
         {
-            ShowToast("Upuść plik mapy (.mapo), XMind (.xmind) albo konspekt (.md, .txt).", InfoBarSeverity.Warning);
+            ShowToast("Upuść plik mapy (.mapo), XMind (.xmind), konspekt (.md, .txt) albo obrazek.", InfoBarSeverity.Warning);
             return;
         }
         await OpenFileAsync(file.Path);

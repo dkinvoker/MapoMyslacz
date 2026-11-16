@@ -164,7 +164,7 @@ public static class Backlinks
             {
                 if (new FileInfo(file).Length > MaxFileSize) continue;
                 var map = MapSerializer.Load(file);
-                foreach (var n in map.Nodes)
+                foreach (var n in map.Nodes.Concat(map.Sheets?.SelectMany(s => s.Nodes) ?? []))
                 {
                     if (string.IsNullOrWhiteSpace(n.Link)) continue;
                     var t = LinkTargets.Resolve(n.Link, file);

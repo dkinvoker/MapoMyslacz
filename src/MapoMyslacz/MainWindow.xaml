@@ -31,6 +31,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- pasek tytułu (cały służy do przeciągania okna) -->
@@ -310,7 +311,15 @@
         </Grid>
 
         <!-- pasek stanu -->
-        <Grid Grid.Row="3" Height="28" Padding="12,0" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+        <!-- zakładki arkuszy -->
+        <Grid Grid.Row="3" Padding="8,3,8,3" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+            <ScrollViewer HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled"
+                          VerticalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="SheetTabs" Orientation="Horizontal" Spacing="4" />
+            </ScrollViewer>
+        </Grid>
+
+        <Grid Grid.Row="4" Height="28" Padding="12,0" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
             <TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="12" Opacity="0.8" TextTrimming="CharacterEllipsis"
                        Margin="0,0,200,0" />
             <TextBlock x:Name="CountText" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12" Opacity="0.7" />

@@ -90,10 +90,24 @@ public static class NodeMetrics
     /// <summary>Szacowany rozmiar całego kafelka.</summary>
     public static Vec Estimate(Node node, ResolvedNodeStyle style)
     {
+        bool hasText = node.Text.Length > 0;
+        int icons = node.Icons?.Count ?? 0;
         var (tw, th) = EstimateText(node.Text, style.FontSize, style.Bold, style.WrapWidth(node));
-        (tw, th) = WithIcons(tw, th, node.Icons?.Count ?? 0, style.FontSize, node.Text.Length > 0);
+        (tw, th) = WithIcons(tw, th, icons, style.FontSize, hasText);
+        (tw, th) = WithImage(tw, th, node.Image, hasText || icons > 0 || node.Image is null);
         var (w, h) = OuterSize(style.Shape, style.FontSize, tw, th);
         return new Vec(Math.Ceiling(w), Math.Ceiling(h));
+    }
+
+    // ------------------------------------------------------------------ obrazek
+
+    public const double ImageTextGap = 6;
+
+    /// <summary>Obszar treści z obrazkiem nad wierszem tekstu (<paramref name="hasRow"/> — czy pod obrazkiem jest tekst/znaczniki).</summary>
+    public static (double W, double H) WithImage(double rowW, double rowH, NodeImage? image, bool hasRow)
+    {
+        if (image is not { Width: > 0, Height: > 0 } img) return (rowW, rowH);
+        return hasRow ? (Math.Max(rowW, img.Width), img.Height + ImageTextGap + rowH) : (img.Width, img.Height);
     }
 
     // ------------------------------------------------------------------ znaczniki

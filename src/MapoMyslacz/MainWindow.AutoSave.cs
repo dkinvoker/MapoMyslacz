@@ -58,12 +58,12 @@ public sealed partial class MainWindow
         if (Headless) return;
         try
         {
-            if (_session.IsDirty || _session.IsBatching)
+            if (_document.IsDirty || _session.IsBatching)
             {
                 // w trakcie pisania tekstu kafelka zmiana nie jest jeszcze zatwierdzona — zapisujemy i tak
-                if (_session.Version == _autoSavedVersion && !_session.IsBatching) return;
-                _autoSave.Write(_session, Map.CurrentView, Environment.ProcessId, ProcessStartTicks);
-                _autoSavedVersion = _session.Version;
+                if (_document.Version == _autoSavedVersion && !_session.IsBatching) return;
+                _autoSave.Write(_document, ViewOf, Environment.ProcessId, ProcessStartTicks);
+                _autoSavedVersion = _document.Version;
             }
             else if (_autoSave.Exists)
             {
@@ -136,10 +136,9 @@ public sealed partial class MainWindow
         if (!await ConfirmDiscardAsync()) return;
         try
         {
-            var map = AutoSaveStore.Load(info);
-            var session = new MapSession(map, info.OriginalPath);
-            session.MarkDirty();
-            LoadSession(session);
+            var doc = MapDocument.FromMap(AutoSaveStore.Load(info), info.OriginalPath);
+            doc.MarkDirty();
+            LoadDocument(doc);
             ClearBackStack();
             AutoSaveStore.Delete(info);
             AutoSaveNow(); // od razu nowa kopia w slocie tego okna

@@ -19,6 +19,10 @@ internal sealed class NodeView
     public double TextX, TextY, TextW, TextH;
     public double IconsX, IconsY, IconSize;
     public IReadOnlyList<string> Icons = [];
+
+    /// <summary>Obrazek nad tekstem: id w magazynie i położenie względem lewego górnego rogu kafelka.</summary>
+    public string? ImageId;
+    public Rect ImageRect;
     public int Hidden, BadgeSide;
     public bool HasNote, HasLink, Editing;
     public string? BadgeText;
@@ -175,6 +179,9 @@ internal sealed class MapScene : IDisposable
     public void Build(MindMap map, MapIndex idx, Rgba canvas)
     {
         Canvas = canvas;
+        _imageStore = map.Images;
+        _theme = MapThemes.Find(map.Theme);
+        _linkTheme = MapThemes.LinksFor(map);
         _usedText.Clear();
         var visible = new HashSet<string>();
         NodeOrder.Clear();
@@ -269,7 +276,7 @@ internal sealed class MapScene : IDisposable
 
     private void LayoutNode(MapIndex idx, Node n, NodeView v)
     {
-        var s = Styles.Resolve(n.Style, Styles.BranchColorFor(idx, n), Canvas);
+        var s = Styles.Resolve(n.Style, Styles.BranchColorFor(idx, n, _theme), Canvas, _theme, MapThemes.IsCentral(idx, n));
         v.Style = s;
         v.X = n.X;
         v.Y = n.Y;
@@ -279,7 +286,8 @@ internal sealed class MapScene : IDisposable
         v.HasLink = !string.IsNullOrWhiteSpace(n.Link);
 
         double fs = s.FontSize;
-        bool hasText = n.Text.Length > 0 || v.Editing || v.Icons.Count == 0;
+        var img = n.Image is { Width: > 0, Height: > 0 } im ? im : null;
+        bool hasText = n.Text.Length > 0 || v.Editing || (v.Icons.Count == 0 && img is null);
         double tw = 0, th = 0;
         v.Text = null;
         if (hasText)
@@ -293,17 +301,28 @@ internal sealed class MapScene : IDisposable
         }
         v.TextW = tw;
         v.TextH = th;
-        var (cw, ch) = NodeMetrics.WithIcons(tw, th, v.Icons.Count, fs, hasText);
+        // wiersz: znaczniki + tekst; nad nim (jeśli jest) obrazek
+        var (rw, rh) = NodeMetrics.WithIcons(tw, th, v.Icons.Count, fs, hasText);
+        bool hasRow = hasText || v.Icons.Count > 0;
+        var (cw, ch) = NodeMetrics.WithImage(rw, rh, img, hasRow);
         var (w, h) = NodeMetrics.OuterSize(s.Shape, fs, cw, ch);
         v.Width = Math.Ceiling(w);
         v.Height = Math.Ceiling(h);
-        double cx = Math.Round((v.Width - Math.Max(cw, NodeMetrics.MinTextWidth)) / 2), cy = Math.Round((v.Height - ch) / 2);
+        double cy = Math.Round((v.Height - ch) / 2);
+        v.ImageId = img?.Id;
+        if (img is not null)
+        {
+            v.ImageRect = new Rect(Math.Round((v.Width - img.Width) / 2), cy, img.Width, img.Height);
+            if (hasRow) cy += img.Height + NodeMetrics.ImageTextGap;
+            RequestImage(img.Id);
+        }
+        double cx = Math.Round((v.Width - Math.Max(rw, NodeMetrics.MinTextWidth)) / 2);
         v.IconSize = NodeMetrics.IconSize(fs);
         v.IconsX = cx;
-        v.IconsY = cy + (ch - v.IconSize) / 2;
+        v.IconsY = cy + (rh - v.IconSize) / 2;
         double iconsW = v.Icons.Count == 0 ? 0 : NodeMetrics.IconsWidth(v.Icons.Count, fs) + (hasText ? NodeMetrics.IconTextGap : 0);
         v.TextX = cx + iconsW;
-        v.TextY = cy + (ch - th) / 2;
+        v.TextY = cy + (rh - th) / 2;
 
         int hidden = n.Collapsed ? idx.Descendants(n.Id).Count : 0;
         v.Hidden = hidden;
@@ -404,7 +423,7 @@ internal sealed class MapScene : IDisposable
 
     public void UpdateLink(Link l, LinkView lv)
     {
-        var s = Styles.Resolve(l.Style);
+        var s = Styles.Resolve(l.Style, _linkTheme, Nodes.TryGetValue(l.From, out var fromView) ? fromView.Style.BranchColor : null);
         lv.Style = s;
         lv.From = l.From;
         lv.To = l.To;
@@ -600,6 +619,65 @@ internal sealed class MapScene : IDisposable
     /// <summary>Pomiar czasu rysowania (włączany zmienną MAPOMYSLACZ_TRACE).</summary>
     public static Action<string>? Profiler;
 
+    // ================================================================== obrazki
+
+    // bitmapy wspólne dla wszystkich scen (ekran, druk) — obrazek o danym id nigdy się nie zmienia
+    private static readonly Dictionary<string, CanvasBitmap> Bitmaps = [];
+    private static readonly Dictionary<string, Task> Loading = [];
+    private static readonly HashSet<string> Broken = [];
+    private Dictionary<string, string>? _imageStore;
+    private MapTheme _theme = MapThemes.Default;
+    private LinkTheme _linkTheme = MapThemes.Default.Links;
+
+    /// <summary>Wczytał się obrazek (płótno rysuje się od nowa).</summary>
+    public static event Action? ImageLoaded;
+
+    public static CanvasBitmap? BitmapFor(string id) => Bitmaps.GetValueOrDefault(id);
+
+    /// <summary>Wczytuje bitmapę obrazka w tle (rysowanie nie może czekać — do tego czasu jest szary prostokąt).</summary>
+    private void RequestImage(string id)
+    {
+        if (Bitmaps.ContainsKey(id) || Loading.ContainsKey(id) || Broken.Contains(id)) return;
+        if (_imageStore is null || !_imageStore.TryGetValue(id, out var data)) return;
+        Loading[id] = LoadAsync(id, data);
+    }
+
+    private static async Task LoadAsync(string id, string data)
+    {
+        try
+        {
+            if (MapImages.FromDataUri(data) is not { } bytes) throw new InvalidDataException("Niepoprawne dane obrazka.");
+            using var stream = await ImagePrep.ToStreamAsync(bytes);
+            Bitmaps[id] = await CanvasBitmap.LoadAsync(Device, stream, 96);
+            ImageLoaded?.Invoke();
+        }
+        catch
+        {
+            Broken.Add(id); // uszkodzony obrazek — zostaje szary prostokąt, bez ponawiania w każdej klatce
+        }
+        finally
+        {
+            Loading.Remove(id);
+        }
+    }
+
+    /// <summary>Czeka, aż wczytają się wszystkie obrazki sceny (eksport i druk rysują od razu całość).</summary>
+    public async Task EnsureImagesAsync()
+    {
+        foreach (var v in NodeOrder)
+            if (v.ImageId is { } id) RequestImage(id);
+        var pending = NodeOrder.Where(v => v.ImageId is not null).Select(v => Loading.GetValueOrDefault(v.ImageId!)).OfType<Task>().Distinct().ToList();
+        if (pending.Count > 0) await Task.WhenAll(pending);
+    }
+
+    /// <summary>Po utracie urządzenia graficznego bitmapy trzeba wczytać od nowa.</summary>
+    public static void ResetBitmaps()
+    {
+        foreach (var b in Bitmaps.Values) b.Dispose();
+        Bitmaps.Clear();
+        Broken.Clear();
+    }
+
     /// <summary>
     /// Uproszczony rysunek do minimapy: kafelki jako prostokąty w ich kolorach, gałęzie i strzałki jako cienkie linie.
     /// Bez tekstu i bez pamięci obrysów (inna skala niż na płótnie rozregulowałaby ich pamięć).
@@ -755,6 +833,20 @@ internal sealed class MapScene : IDisposable
         }
 
         bool detailed = s.FontSize * zoom >= 2.5; // przy dużym oddaleniu tekst byłby nieczytelną kreską
+        if (v.ImageId is { } imageId)
+        {
+            var dest = new Rect(left + v.ImageRect.X, top + v.ImageRect.Y, v.ImageRect.Width, v.ImageRect.Height);
+            if (Bitmaps.TryGetValue(imageId, out var bmp))
+            {
+                // zmniejszanie — filtr wysokiej jakości (ostre, bez „schodków”), powiększanie — zwykły liniowy
+                var quality = v.ImageRect.Width * zoom < bmp.SizeInPixels.Width ? CanvasImageInterpolation.HighQualityCubic : CanvasImageInterpolation.Linear;
+                ds.DrawImage(bmp, dest, bmp.Bounds, 1f, quality);
+            }
+            else
+            {
+                ds.FillRectangle(dest, C(s.TextColor.WithAlpha(36))); // obrazek się jeszcze wczytuje
+            }
+        }
         for (int i = 0; i < v.Icons.Count; i++)
         {
             double x = left + v.IconsX + i * (v.IconSize + NodeMetrics.IconGap);

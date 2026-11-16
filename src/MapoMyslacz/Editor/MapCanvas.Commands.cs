@@ -110,8 +110,24 @@ public sealed partial class MapCanvas
         var nodes = _session.SelectedNodes.ToList();
         var links = _session.SelectedLinks.ToList();
         var frames = _session.SelectedFrames.ToList();
-        _session.Edit(m => MapOps.Delete(m, nodes, links, frames));
+        // usunięcie gałęzi = odłączenie kafelka od rodzica (kafelek zostaje jako swobodny)
+        var branches = _session.SelectedBranches.ToList();
+        _session.Edit(m =>
+        {
+            foreach (var b in branches) MapOps.Reparent(m, b, null);
+            MapOps.Delete(m, nodes, links, frames);
+        });
         _session.ClearSelection();
+    }
+
+    /// <summary>Zaznaczone gałęzie stają się zwykłymi strzałkami (do zaznaczania, wyginania, podpisów).</summary>
+    public void BranchesToLinks()
+    {
+        var children = _session.SelectedBranches.ToList();
+        if (children.Count == 0) return;
+        var created = new List<string>();
+        _session.Edit(m => { foreach (var c in children) if (MapOps.BranchToLink(m, c) is { } l) created.Add(l.Id); });
+        _session.Select([], created);
     }
 
     // ================================================================== ramki
@@ -320,6 +336,24 @@ public sealed partial class MapCanvas
             var view = Clipboard.GetContent();
             if (view.Contains(ClipboardFormat))
                 fragment = MapSerializer.TryDeserializeFragment(await ReadClipboardTextAsync(await view.GetDataAsync(ClipboardFormat)));
+            // obrazek (zrzut ekranu, skopiowany z przeglądarki albo plik): do zaznaczonego kafelka albo jako nowy kafelek
+            if (fragment is null && view.Contains(StandardDataFormats.Bitmap))
+            {
+                var bitmap = await view.GetBitmapAsync();
+                using var stream = await bitmap.OpenReadAsync();
+                await InsertImageAsync(stream, at, _session.SingleNode?.Id);
+                return;
+            }
+            if (fragment is null && view.Contains(StandardDataFormats.StorageItems))
+            {
+                var file = (await view.GetStorageItemsAsync()).OfType<Windows.Storage.StorageFile>().FirstOrDefault(f => ImagePrep.IsImageFile(f.Path));
+                if (file is not null)
+                {
+                    using var stream = await file.OpenReadAsync();
+                    await InsertImageAsync(stream, at, _session.SingleNode?.Id);
+                    return;
+                }
+            }
             if (fragment is null && view.Contains(StandardDataFormats.Text))
             {
                 var text = await view.GetTextAsync();

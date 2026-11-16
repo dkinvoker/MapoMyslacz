@@ -52,7 +52,7 @@ public sealed partial class MainWindow
         var o = await ShowPrintOptionsAsync(forPrinter: true);
         if (o is null) return;
         var hwnd = Win32Interop.GetWindowFromWindowId(AppWindow.Id);
-        using var scene = Map.CreatePrintScene(o);
+        using var scene = await Map.CreatePrintSceneAsync(o);
         var title = MapTitle;
         var r = PrintService.Print(hwnd, content.Inflate(4), o, title,
             (page, plan, n, count, dpi) => MapCanvas.RenderPage(scene, page, plan, o, title, n, count, dpi));
@@ -161,7 +161,7 @@ public sealed partial class MainWindow
             if (my != version) return;
             try
             {
-                using var scene = Map.CreatePrintScene(o);
+                using var scene = await Map.CreatePrintSceneAsync(o);
                 var (bgra, w, h) = MapCanvas.RenderPage(scene, plan.Pages[0], plan, o, MapTitle, 1, plan.Pages.Count, 40);
                 if (my != version) return;
                 using var bmp = CanvasBitmap.CreateFromBytes(MapScene.SharedDevice, bgra, w, h, Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized);
@@ -264,6 +264,8 @@ public sealed partial class MainWindow
     /// <summary>Pokazuje kafelek: rozwija zwinięte gałęzie, zaznacza go i płynnie przesuwa do niego widok.</summary>
     private void RevealNode(string id)
     {
+        // kafelek może być na innym arkuszu tego pliku — wtedy najpierw przełączamy zakładkę
+        if (_session.Index.Get(id) is null && _document.SheetOfNode(id) is var sheet and >= 0) ShowSheet(sheet);
         if (_session.Index.Get(id) is not { } n)
         {
             ShowToast("Kafelka z linku nie ma już w tej mapie.", InfoBarSeverity.Warning);
