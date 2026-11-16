@@ -4,6 +4,54 @@ Numer wersji jest w jednym miejscu: `Directory.Build.props` (`<Version>`).
 Widać go na pasku tytułu aplikacji, w oknie „O programie” i we właściwościach pliku exe.
 Sekcja z numerem wersji trafia automatycznie do opisu wydania na GitHubie (patrz README → „Wydawanie nowej wersji”).
 
+## 1.3 — 2026-11-16
+
+### Nowe
+- **Autozapis i odzyskiwanie po awarii.** Co minutę niezapisane zmiany trafiają do
+  `%LOCALAPPDATA%\MapoMyslacz\autosave`. Po zapisaniu mapy albo poprawnym zamknięciu kopia znika; po awarii
+  (albo wyłączonym prądzie) program przy starcie proponuje przywrócenie — mapa wraca jako niezapisana,
+  Ctrl+S zapisze ją w miejscu oryginału.
+- **Wyszukiwanie (Ctrl+F)** w tekstach i notatkach — bez wielkości liter i polskich znaków („zolw” znajdzie „Żółw”),
+  kilka słów naraz. Wyniki podświetlone, Enter/F3 przechodzi po mapie gałąź po gałęzi, zwinięte gałęzie same się
+  rozwijają.
+- **Minimapa** w prawym dolnym rogu, gdy mapa nie mieści się w oknie — z ramką widoku; klik albo przeciągnięcie
+  przenosi w to miejsce. Wyłącza się w menu **Widok** (ikona oka).
+- **Fokus na gałęzi (Ctrl+Shift+F):** zaznaczony kafelek z gałęzią i wszystkim, co łączy się z nimi strzałkami —
+  wyraźnie, reszta mapy przygaszona (np. postać i jej relacje). Esc wraca do całej mapy.
+- **Ramki wokół grup kafelków (Ctrl+G)** — półprzezroczysty prostokąt z nazwą („Wioska”, „Las”). Ramka sama obejmuje
+  swoje kafelki z gałęziami i jedzie razem z nimi; chwycona za nagłówek przesuwa całą grupę. Kolor, nazwa, dodawanie
+  i wyjmowanie kafelków w menu kontekstowym. Granice z XMind importują się jako ramki.
+- **Wyrównywanie:** kilka zaznaczonych kafelków → do lewej/prawej/góry/dołu, do środka, rozłożenie w równych odstępach
+  (menu kontekstowe i panel).
+- **Linie pomocnicze przy przeciąganiu:** kafelek przyciąga się do krawędzi i środków sąsiadów (czerwone linie);
+  Ctrl wyłącza.
+- **Uchwyt szerokości** w rogu zaznaczonego kafelka — przeciągnięcie ustawia, gdzie zawija się tekst
+  (dwuklik — z powrotem automatycznie).
+- **Strzałki łamane** (pod kątem prostym, z zaokrąglonymi narożnikami) — trzeci kształt obok łuku i prostej; kafelek
+  pod kafelkiem dostaje łącznik jak w drzewie genealogicznym. Przeciągnięcie przesuwa środkowy odcinek.
+- **Linki do kafelków:** `#id` (kafelek w tej samej mapie) i `Sesja 2.mapo#id` (kafelek w innej mapie — po otwarciu
+  widok płynnie przesuwa się do niego). Panel → Link → „Kafelek…” i klik; prawy przycisk → „Kopiuj link do kafelka”.
+- **Linki zwrotne:** panel mapy pokazuje, które mapy z tego samego folderu prowadzą do tej („Sesja A — „Brama””),
+  klik otwiera je przy właściwym kafelku.
+- **Konspekt Markdown:** eksport (tematy jako nagłówki, gałęzie jako listy, notatki jako cytaty, linki, znaczniki,
+  strzałki i ramki w osobnych sekcjach) i import `.md`/`.txt` (Plik albo upuszczenie na okno) — eksport i import
+  dają z powrotem tę samą strukturę.
+- **Własne gotowe style:** Styl → „Zapisz styl zaznaczonego kafelka jako mój” — dostępne we wszystkich mapach
+  (menu Styl, panel, menu kafelka).
+- **Siatka kropek** na płótnie (menu Widok) — kropki zawsze tej samej wielkości, rzedną przy oddalaniu.
+- **Płynne przejścia widoku:** „Pokaż całą mapę”, przyciski powiększenia, przechodzenie strzałkami, wyszukiwanie
+  i linki przesuwają widok animacją zamiast skoku.
+
+### Poprawki i wydajność
+- **Przeciąganie na ogromnych mapach**: nieruchoma część sceny trafia na czas przeciągania do bitmapy, a w każdej
+  klatce rysowane jest tylko to, co się rusza (kafelki z gałęziami, wyginana strzałka, kafelek o zmienianej szerokości).
+  Na mapie testowej z 3660 kafelkami klatka przy przeciąganiu: ~200 ms → 12–19 ms.
+- Kliknięcie kafelka i od razu przeciągnięcie nie przycina się na początku: panel właściwości buduje się dopiero
+  po puszczeniu przycisku myszy (wcześniej jego budowa i układ potrafiły zatrzymać pierwsze ruchy na ponad sekundę).
+- Minimapa nie przerysowuje się w trakcie przeciągania (odświeża się po puszczeniu myszy).
+- Testy: 152 (autozapis, wyszukiwanie, wyrównywanie, ramki, konspekt Markdown, strzałki łamane, linki do kafelków
+  i linki zwrotne).
+
 ## 1.2.1 — 2026-11-09
 
 Pierwsze właściwe wydanie wersji 1.2. Wydanie 1.2.0 na GitHubie powstało przez pomyłkę ze starego kodu (tag wskazywał

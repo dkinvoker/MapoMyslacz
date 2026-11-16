@@ -30,6 +30,25 @@ public sealed class MindMap
     public List<Node> Nodes { get; set; } = [];
 
     public List<Link> Links { get; set; } = [];
+
+    /// <summary>Ramki wokół grup kafelków (brak = żadnych; starsze wersje programu po prostu je pomijają).</summary>
+    public List<Frame>? Frames { get; set; }
+}
+
+/// <summary>
+/// Ramka (granica) wokół grupy kafelków, np. „Wioska”, „Las” — półprzezroczysty prostokąt z nagłówkiem.
+/// Nie ma własnego położenia: zawsze obejmuje swoje kafelki (razem z ich gałęziami), więc jedzie razem z nimi.
+/// </summary>
+public sealed class Frame
+{
+    public string Id { get; set; } = Ids.New();
+    public string? Title { get; set; }
+
+    /// <summary>Kafelki w ramce (ich gałęzie należą do ramki automatycznie).</summary>
+    public List<string> Nodes { get; set; } = [];
+
+    /// <summary>Kolor ramki (#RRGGBB). Brak = domyślny fioletowy.</summary>
+    public string? Color { get; set; }
 }
 
 public sealed class ViewState
@@ -193,6 +212,8 @@ public enum LinkCurve
 {
     [JsonStringEnumMemberName("curved")] Curved,
     [JsonStringEnumMemberName("straight")] Straight,
+    /// <summary>Łamana pod kątem prostym (schematy, drzewa genealogiczne). C1 przesuwa jej środkowy odcinek.</summary>
+    [JsonStringEnumMemberName("elbow")] Elbow,
 }
 
 /// <summary>Krótkie, losowe identyfikatory (10 znaków) — czytelniejsze w pliku niż GUID.</summary>

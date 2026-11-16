@@ -19,6 +19,15 @@ public sealed class AppSettings
     /// <summary>Panel właściwości po prawej stronie.</summary>
     public bool ShowProperties { get; set; } = true;
 
+    /// <summary>Minimapa w rogu płótna (gdy mapa nie mieści się w oknie).</summary>
+    public bool ShowMinimap { get; set; } = true;
+
+    /// <summary>Delikatna siatka kropek na płótnie.</summary>
+    public bool ShowGrid { get; set; }
+
+    /// <summary>Własne gotowe style („Zapisz styl zaznaczonego kafelka”) — dostępne we wszystkich mapach.</summary>
+    public List<CustomStyle> CustomStyles { get; set; } = [];
+
     /// <summary>Ostatnie ustawienia druku/PDF (zapamiętywane między uruchomieniami).</summary>
     public Core.Export.PrintOptions Print { get; set; } = new();
 
@@ -70,7 +79,14 @@ public sealed class AppSettings
     }
 }
 
-[JsonSourceGenerationOptions(WriteIndented = true)]
+/// <summary>Własny gotowy styl kafelka.</summary>
+public sealed class CustomStyle
+{
+    public string Name { get; set; } = "";
+    public Core.Model.NodeStyle Style { get; set; } = new();
+}
+
+[JsonSourceGenerationOptions(WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(AppSettings))]
 internal partial class SettingsJson : JsonSerializerContext
 {

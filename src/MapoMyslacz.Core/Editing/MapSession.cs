@@ -23,6 +23,10 @@ public sealed class MapSession
 
     public HashSet<string> SelectedNodes { get; } = [];
     public HashSet<string> SelectedLinks { get; } = [];
+    public HashSet<string> SelectedFrames { get; } = [];
+
+    /// <summary>Ile obiektów jest zaznaczonych (kafelki, strzałki, ramki).</summary>
+    public int SelectionCount => SelectedNodes.Count + SelectedLinks.Count + SelectedFrames.Count;
 
     /// <summary>Mapa się zmieniła (treść, układ albo cofnięcie).</summary>
     public event Action? Changed;
@@ -53,6 +57,9 @@ public sealed class MapSession
 
     public bool IsDirty => _version != _savedVersion;
     public bool IsBatching => _batchDepth > 0;
+
+    /// <summary>Licznik zmian (rośnie przy każdej zmianie, cofnięciu i ponowieniu) — np. do autozapisu.</summary>
+    public long Version => _version;
     public bool CanUndo => _history.CanUndo;
     public bool CanRedo => _history.CanRedo;
 
@@ -155,17 +162,32 @@ public sealed class MapSession
         _savedVersion = _version;
     }
 
+    /// <summary>Zapisuje kopię mapy (np. autozapis) — bez zmiany pliku mapy i znacznika niezapisanych zmian.</summary>
+    public void WriteCopy(string path, ViewState? view)
+    {
+        Map.View = view;
+        try
+        {
+            MapSerializer.Save(Map, path);
+        }
+        finally
+        {
+            Map.View = null;
+        }
+    }
+
     /// <summary>Oznacza mapę jako zmienioną (np. po imporcie — jeszcze nie ma swojego pliku .mapo).</summary>
     public void MarkDirty() => _version++;
 
     // ------------------------------------------------------------------ zaznaczenie
 
-    public void Select(IEnumerable<string> nodes, IEnumerable<string>? links = null, bool add = false)
+    public void Select(IEnumerable<string> nodes, IEnumerable<string>? links = null, bool add = false, IEnumerable<string>? frames = null)
     {
         if (!add)
         {
             SelectedNodes.Clear();
             SelectedLinks.Clear();
+            SelectedFrames.Clear();
         }
         foreach (var n in nodes) if (Index.Contains(n)) SelectedNodes.Add(n);
         if (links is not null)
@@ -173,6 +195,8 @@ public sealed class MapSession
             var existing = Map.Links.Select(x => x.Id).ToHashSet();
             foreach (var l in links) if (existing.Contains(l)) SelectedLinks.Add(l);
         }
+        if (frames is not null)
+            foreach (var f in frames) if (FindFrame(f) is not null) SelectedFrames.Add(f);
         SelectionChanged?.Invoke();
     }
 
@@ -180,20 +204,28 @@ public sealed class MapSession
 
     public void SelectLink(string id, bool add = false) => Select([], [id], add);
 
-    public void Toggle(string? nodeId, string? linkId)
+    public void SelectFrame(string id, bool add = false) => Select([], null, add, [id]);
+
+    public void Toggle(string? nodeId, string? linkId, string? frameId = null)
     {
         if (nodeId is not null && !SelectedNodes.Remove(nodeId)) SelectedNodes.Add(nodeId);
         if (linkId is not null && !SelectedLinks.Remove(linkId)) SelectedLinks.Add(linkId);
+        if (frameId is not null && !SelectedFrames.Remove(frameId)) SelectedFrames.Add(frameId);
         SelectionChanged?.Invoke();
     }
 
     public void ClearSelection()
     {
-        if (SelectedNodes.Count == 0 && SelectedLinks.Count == 0) return;
+        if (SelectionCount == 0) return;
         SelectedNodes.Clear();
         SelectedLinks.Clear();
+        SelectedFrames.Clear();
         SelectionChanged?.Invoke();
     }
+
+    public Frame? FindFrame(string? id) => id is null ? null : Map.Frames?.FirstOrDefault(f => f.Id == id);
+
+    public IEnumerable<Frame> SelectedFrameObjects => Map.Frames?.Where(f => SelectedFrames.Contains(f.Id)) ?? [];
 
     public void SelectAll() => Select(Map.Nodes.Where(n => Index.IsVisible(n)).Select(n => n.Id), Map.Links.Select(l => l.Id));
 
@@ -201,14 +233,18 @@ public sealed class MapSession
     public IEnumerable<Link> SelectedLinkObjects => Map.Links.Where(l => SelectedLinks.Contains(l.Id));
 
     /// <summary>Jedyny zaznaczony kafelek (albo null).</summary>
-    public Node? SingleNode => SelectedNodes.Count == 1 && SelectedLinks.Count == 0 ? Index.Get(SelectedNodes.First()) : null;
+    public Node? SingleNode => SelectedNodes.Count == 1 && SelectedLinks.Count == 0 && SelectedFrames.Count == 0 ? Index.Get(SelectedNodes.First()) : null;
+
+    /// <summary>Jedyna zaznaczona ramka (bez kafelków i strzałek) albo null.</summary>
+    public Frame? SingleFrame => SelectedFrames.Count == 1 && SelectedNodes.Count == 0 && SelectedLinks.Count == 0 ? FindFrame(SelectedFrames.First()) : null;
 
     private void PruneSelection()
     {
-        int before = SelectedNodes.Count + SelectedLinks.Count;
+        int before = SelectionCount;
         SelectedNodes.RemoveWhere(id => !Index.Contains(id) || !Index.IsVisible(Index.Get(id)!));
         var links = Map.Links.Select(l => l.Id).ToHashSet();
         SelectedLinks.RemoveWhere(id => !links.Contains(id));
-        if (SelectedNodes.Count + SelectedLinks.Count != before) SelectionChanged?.Invoke();
+        SelectedFrames.RemoveWhere(id => FindFrame(id) is null);
+        if (SelectionCount != before) SelectionChanged?.Invoke();
     }
 }

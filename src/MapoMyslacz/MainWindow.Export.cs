@@ -219,20 +219,15 @@ public sealed partial class MainWindow
                 case LinkKind.Web:
                     Process.Start(new ProcessStartInfo(target.Target) { UseShellExecute = true });
                     break;
-                case LinkKind.Map when File.Exists(target.Target):
-                {
-                    var from = _session.FilePath;
-                    if (!await ConfirmDiscardAsync()) return;
-                    if (!await OpenFileAsync(target.Target, confirm: false)) return;
-                    if (from is not null)
-                    {
-                        _backStack.Push(from);
-                        UpdateBackButton();
-                    }
-                    ShowToast($"Otwarto mapę „{Path.GetFileNameWithoutExtension(target.Target)}”" +
-                              (from is null ? "." : " — Alt+← albo strzałka w lewo na pasku wraca do poprzedniej."), InfoBarSeverity.Informational);
+                case LinkKind.Node:
+                    RevealNode(target.NodeId!);
                     break;
-                }
+                case LinkKind.Map when target.NodeId is { } same && _session.FilePath is { } cur && LinkTargets.SamePath(cur, target.Target):
+                    RevealNode(same);
+                    break;
+                case LinkKind.Map when File.Exists(target.Target):
+                    await OpenLinkedMapAsync(target.Target, target.NodeId);
+                    break;
                 case LinkKind.File when File.Exists(target.Target) || Directory.Exists(target.Target):
                     Process.Start(new ProcessStartInfo(target.Target) { UseShellExecute = true });
                     break;
@@ -249,6 +244,71 @@ public sealed partial class MainWindow
             ShowToast($"Nie udało się otworzyć linku: {ex.Message}", InfoBarSeverity.Error);
         }
     }
+
+    /// <summary>Otwiera inną mapę kampanii (z możliwością powrotu) i ewentualnie pokazuje w niej kafelek.</summary>
+    private async Task OpenLinkedMapAsync(string path, string? nodeId)
+    {
+        var from = _session.FilePath;
+        if (!await ConfirmDiscardAsync()) return;
+        if (!await OpenFileAsync(path, confirm: false)) return;
+        if (from is not null)
+        {
+            _backStack.Push(from);
+            UpdateBackButton();
+        }
+        if (nodeId is not null) RevealNode(nodeId);
+        ShowToast($"Otwarto mapę „{Path.GetFileNameWithoutExtension(path)}”" +
+                  (from is null ? "." : " — Alt+← albo strzałka w lewo na pasku wraca do poprzedniej."), InfoBarSeverity.Informational);
+    }
+
+    /// <summary>Pokazuje kafelek: rozwija zwinięte gałęzie, zaznacza go i płynnie przesuwa do niego widok.</summary>
+    private void RevealNode(string id)
+    {
+        if (_session.Index.Get(id) is not { } n)
+        {
+            ShowToast("Kafelka z linku nie ma już w tej mapie.", InfoBarSeverity.Warning);
+            return;
+        }
+        var collapsed = MapSearch.CollapsedAncestors(_session.Index, n);
+        if (collapsed.Count > 0) _session.Edit(_ => collapsed.ForEach(c => c.Collapsed = false));
+        _session.SelectNode(id);
+        Map.CenterOn(id);
+    }
+
+    // ------------------------------------------------------------------ linki zwrotne
+
+    private List<Backlink> _backlinks = [];
+    private string? _backlinksFor;
+    private CancellationTokenSource? _backlinksCts;
+
+    /// <summary>W tle: które mapy z tego folderu prowadzą do bieżącej (pokazywane w panelu mapy).</summary>
+    private async void RefreshBacklinks()
+    {
+        _backlinksCts?.Cancel();
+        var path = _session.FilePath;
+        _backlinks = [];
+        _backlinksFor = null;
+        if (path is null || Headless) return;
+        var cts = new CancellationTokenSource();
+        _backlinksCts = cts;
+        try
+        {
+            var found = await Task.Run(() => Backlinks.Find(path, cts.Token), cts.Token);
+            if (cts.IsCancellationRequested || _session.FilePath != path) return;
+            _backlinks = found;
+            _backlinksFor = path;
+            if (found.Count > 0 && _session.SelectionCount == 0) RebuildProperties();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            App.LogError("Linki zwrotne", ex);
+        }
+    }
+
+    private async Task OpenBacklinkAsync(Backlink b) => await OpenLinkedMapAsync(b.MapPath, b.NodeId);
 
     private async Task GoBackAsync()
     {

@@ -47,6 +47,16 @@ public static class Styles
         Rgba.Parse("#D6409F", Rgba.Black), Rgba.Parse("#AD7F58", Rgba.Black),
     ];
 
+    /// <summary>Kolory ramek wokół grup kafelków (pierwszy — domyślny).</summary>
+    public static readonly (string Color, string Name)[] FrameColors =
+    [
+        ("#8E4EC6", "Fioletowa"), ("#0090FF", "Niebieska"), ("#12A594", "Morska"), ("#30A46C", "Zielona"),
+        ("#E2A400", "Żółta"), ("#F76B15", "Pomarańczowa"), ("#E5484D", "Czerwona"), ("#D6409F", "Różowa"),
+        ("#AD7F58", "Brązowa"), ("#6F6D78", "Szara"),
+    ];
+
+    public static Rgba FrameColor(Frame f) => Rgba.Parse(f.Color, Rgba.Parse(FrameColors[0].Color, Rgba.Black)).WithAlpha(255);
+
     /// <summary>Paleta w panelu właściwości (wypełnienia, ramki, tekst, strzałki).</summary>
     public static readonly string[] Swatches =
     [

@@ -77,7 +77,7 @@ public partial class App : Application
                 System.Globalization.CultureInfo.InvariantCulture, out var sc) ? sc : 2;
             if (input is not null && output is not null && File.Exists(input))
             {
-                _window = new MainWindow();
+                _window = new MainWindow { Headless = true };
                 _window.AppWindow.IsShownInSwitchers = false;
                 _window.AppWindow.Move(new PointInt32(-32000, -32000));
                 _window.Activate();

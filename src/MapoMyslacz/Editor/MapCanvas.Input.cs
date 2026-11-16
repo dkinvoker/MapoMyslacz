@@ -8,13 +8,30 @@ using Microsoft.UI.Xaml.Input;
 using Windows.Foundation;
 using Windows.System;
 using Windows.UI.Core;
+using Frame = MapoMyslacz.Core.Model.Frame;
 
 namespace MapoMyslacz.Editor;
 
 /// <summary>Mysz i klawiatura: przesuwanie widoku, zaznaczanie, przeciąganie, łączenie, skróty.</summary>
 public sealed partial class MapCanvas
 {
-    private enum DragMode { None, Pending, Pan, Marquee, MoveNodes, BendLink, MoveHandle, Connect }
+    private enum DragMode { None, Pending, Pan, Marquee, MoveNodes, BendLink, MoveHandle, Connect, Minimap, ResizeWidth }
+
+    /// <summary>Przycisk myszy jest wciśnięty nad płótnem (klik albo przeciąganie w toku).</summary>
+    public bool IsPointerBusy => _drag != DragMode.None;
+
+    /// <summary>Skończyło się przeciąganie albo klik (puszczony przycisk myszy).</summary>
+    public event Action? PointerInteractionEnded;
+
+    /// <summary>Tryby, w których przeciąganie zmienia mapę (jedna partia zmian = jeden krok cofania).</summary>
+    private bool DragEditsMap => _drag is DragMode.MoveNodes or DragMode.BendLink or DragMode.MoveHandle or DragMode.ResizeWidth;
+
+    // linie pomocnicze przyciągania (układ mapy) i kafelki, do których można przyciągać
+    private readonly List<(Vec A, Vec B)> _guides = [];
+    private List<Box> _snapTargets = [];
+    private Box _grabBox0;
+    private double _resizeLeft, _resizeStartWrap;
+    private static readonly InputCursor SizeWeCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast);
 
     private const double DragThreshold = 4;
 
@@ -26,6 +43,7 @@ public sealed partial class MapCanvas
     private HashSet<string> _moving = [];
     private Dictionary<string, Vec> _moveOrigins = [];
     private Vec _bendC1, _bendC2;
+    private bool _bendElbow;
     private List<Vec>? _bendVia;
     private Cubic? _connectPreview;
     private string? _dropTarget;
@@ -84,8 +102,18 @@ public sealed partial class MapCanvas
         var w = ToWorld(pos);
         Trace($"pressed {pos} drag={_drag} left={props.IsLeftButtonPressed}");
         Focus(FocusState.Pointer);
+        StopAnimation();
         if (_editor is not null || _labelEditor is not null) CommitEdit();
         if (_drag != DragMode.None) return;
+
+        if (props.IsLeftButtonPressed && MinimapContains(pos))
+        {
+            _drag = DragMode.Minimap;
+            MoveViewToMinimap(pos);
+            CapturePointer(e.Pointer);
+            e.Handled = true;
+            return;
+        }
 
         var mods = e.KeyModifiers;
         _pressShift = mods.HasFlag(VirtualKeyModifiers.Shift);
@@ -110,6 +138,7 @@ public sealed partial class MapCanvas
             // prawy przycisk: zaznacz to, co pod kursorem (menu pokaże RightTapped)
             if (hit.Kind == HitKind.Node && !_session.SelectedNodes.Contains(hit.Id!)) _session.SelectNode(hit.Id!);
             else if (hit.Kind == HitKind.Link && !_session.SelectedLinks.Contains(hit.Id!)) _session.SelectLink(hit.Id!);
+            else if (hit.Kind == HitKind.Frame && !_session.SelectedFrames.Contains(hit.Id!)) _session.SelectFrame(hit.Id!);
             return;
         }
         if (!props.IsLeftButtonPressed) return;
@@ -118,6 +147,18 @@ public sealed partial class MapCanvas
         {
             if (NodeAt(w, from) is { } target) CreateLink(from, target);
             ExitConnectMode();
+            e.Handled = true;
+            return;
+        }
+
+        if (_linkPickFrom is { } src)
+        {
+            if (NodeAt(w, src) is { } target && _session.Index.Get(src) is { } sn)
+            {
+                _session.Edit(_ => sn.Link = "#" + target);
+                Notify?.Invoke("Dodano link do kafelka — Ctrl+klik (albo klik w niebieski znaczek) przenosi do niego.");
+            }
+            ExitLinkPick();
             e.Handled = true;
             return;
         }
@@ -159,6 +200,11 @@ public sealed partial class MapCanvas
                 else if (_pressShift) _session.SelectLink(hit.Id!, add: true);
                 else if (!_session.SelectedLinks.Contains(hit.Id!)) _session.SelectLink(hit.Id!);
                 break;
+            case HitKind.Frame:
+                if (_pressCtrl) _session.Toggle(null, null, hit.Id);
+                else if (_pressShift) _session.SelectFrame(hit.Id!, add: true);
+                else if (!_session.SelectedFrames.Contains(hit.Id!)) _session.SelectFrame(hit.Id!);
+                break;
         }
         _drag = DragMode.Pending;
         CapturePointer(e.Pointer);
@@ -175,7 +221,8 @@ public sealed partial class MapCanvas
 
         if (_drag == DragMode.None)
         {
-            UpdateHoverCursor(w, e.KeyModifiers);
+            if (MinimapContains(pos)) SetCursor(HandCursor);
+            else UpdateHoverCursor(w, e.KeyModifiers);
             return;
         }
         if (_drag == DragMode.Pending)
@@ -191,10 +238,31 @@ public sealed partial class MapCanvas
                 PanBy(pos.X - _lastScreen.X, pos.Y - _lastScreen.Y);
                 break;
 
+            case DragMode.Minimap:
+                MoveViewToMinimap(pos);
+                break;
+
+            case DragMode.ResizeWidth when _session.Index.Get(_pressHit.Id) is { } rn:
+            {
+                // szerokość zawijania tekstu; lewa krawędź kafelka zostaje w miejscu
+                rn.Width = Math.Max(24, Math.Round(_resizeStartWrap + (w.X - _pressWorld.X)));
+                if (_scene.Relayout(_session.Index, rn) is { } rv) rn.X = Math.Round(_resizeLeft + rv.Width / 2);
+                RefreshGeometry([rn.Id]);
+                break;
+            }
+
             case DragMode.MoveNodes:
                 // Shift: tylko w poziomie albo w pionie
+                bool lockX = false, lockY = false;
                 if (e.KeyModifiers.HasFlag(VirtualKeyModifiers.Shift))
-                    d = Math.Abs(d.X) >= Math.Abs(d.Y) ? new Vec(d.X, 0) : new Vec(0, d.Y);
+                {
+                    lockY = Math.Abs(d.X) >= Math.Abs(d.Y);
+                    lockX = !lockY;
+                    d = lockY ? new Vec(d.X, 0) : new Vec(0, d.Y);
+                }
+                // przyciąganie do krawędzi i środków sąsiadów (Ctrl — bez przyciągania)
+                if (e.KeyModifiers.HasFlag(VirtualKeyModifiers.Control)) _guides.Clear();
+                else d = Snap(d, lockX, lockY);
                 var idx = _session.Index;
                 foreach (var id in _moving)
                 {
@@ -208,6 +276,7 @@ public sealed partial class MapCanvas
 
             case DragMode.BendLink when FindLink(_pressHit.Id) is { } bl:
                 if (_bendVia is { } via) bl.Via = via.Select(p => LinkRouting.Round(p + d)).ToList();
+                else if (_bendElbow) bl.C1 = LinkRouting.Round(_bendC1 + d); // łamana: przesuwa się środkowy odcinek
                 else
                 {
                     bl.C1 = LinkRouting.Round(_bendC1 + d * (4.0 / 3));
@@ -244,29 +313,48 @@ public sealed partial class MapCanvas
         switch (_pressHit.Kind)
         {
             case HitKind.Node when _session.SelectedNodes.Contains(_pressHit.Id!):
+            case HitKind.Frame when _session.SelectedFrames.Contains(_pressHit.Id!):
             {
                 _drag = DragMode.MoveNodes;
                 _session.BeginBatch();
                 var idx = _session.Index;
-                // Alt: przesuwa tylko zaznaczone kafelki, bez ich gałęzi
+                // Alt: przesuwa tylko zaznaczone kafelki, bez ich gałęzi; ramka zawsze jedzie z całą zawartością
                 _moving = MapOps.MovingSet(idx, _session.SelectedNodes, withDescendants: !_pressAlt);
+                _moving.UnionWith(MapOps.MovingSet(idx, _session.SelectedFrameObjects.SelectMany(f => f.Nodes), withDescendants: true));
                 _moveOrigins = _moving.ToDictionary(id => id, id => new Vec(idx.Get(id)!.X, idx.Get(id)!.Y));
+                // przyciąganie: chwycony kafelek do nieruchomych kafelków w pobliżu widoku
+                _grabBox0 = _pressHit.Kind == HitKind.Node && _nodes.TryGetValue(_pressHit.Id!, out var grabbed) ? grabbed.Bounds : default;
+                var near = VisibleWorld.Inflate(Math.Max(VisibleWorld.Width, VisibleWorld.Height));
+                _snapTargets = _scene.NodeOrder.Where(v => !_moving.Contains(v.Id) && v.Bounds.Intersects(near)).Select(v => v.Bounds).ToList();
+                PrepareDragCache(_moving);
                 SetCursor(MoveCursor);
                 UpdateOverlay();
                 break;
             }
+            case HitKind.WidthHandle when _nodes.TryGetValue(_pressHit.Id!, out var rv):
+                _drag = DragMode.ResizeWidth;
+                _session.BeginBatch();
+                _resizeLeft = rv.X - rv.Width / 2;
+                _resizeStartWrap = Math.Max(rv.TextW, 24);
+                PrepareDragCache([rv.Id]);
+                SetCursor(SizeWeCursor);
+                UpdateOverlay();
+                break;
             case HitKind.Link when _session.SelectedLinks.Contains(_pressHit.Id!) && FindLink(_pressHit.Id) is { } l
                                    && _nodes.TryGetValue(l.From, out var fv) && _nodes.TryGetValue(l.To, out var tv):
                 _drag = DragMode.BendLink;
                 _session.BeginBatch();
                 if (l.Style?.Curve == LinkCurve.Straight) MapOps.EditStyle(l, s => s.Curve = null);
                 _bendVia = l.Via?.ToList();
-                (_bendC1, _bendC2) = LinkRouting.Controls(l, fv.Outline.Center, tv.Outline.Center);
+                _bendElbow = l.Style?.Curve == LinkCurve.Elbow && _bendVia is null;
+                (_bendC1, _bendC2) = _bendElbow ? (l.C1 ?? Vec.Zero, Vec.Zero) : LinkRouting.Controls(l, fv.Outline.Center, tv.Outline.Center);
+                PrepareDragCache([l.Id]);
                 SetCursor(MoveCursor);
                 break;
             case HitKind.LinkHandle1 or HitKind.LinkHandle2:
                 _drag = DragMode.MoveHandle;
                 _session.BeginBatch();
+                PrepareDragCache([_pressHit.Id!]);
                 break;
             case HitKind.ConnectHandle:
                 _drag = DragMode.Connect;
@@ -305,6 +393,65 @@ public sealed partial class MapCanvas
         _canvas.Invalidate();
     }
 
+    /// <summary>
+    /// Przyciąganie przeciąganego kafelka: jego lewa krawędź, środek i prawa (tak samo góra/środek/dół) do tych samych
+    /// linii sąsiadów, gdy są bliżej niż 6 pikseli ekranu. Zwraca poprawione przesunięcie i ustawia linie pomocnicze.
+    /// </summary>
+    private Vec Snap(Vec d, bool lockX, bool lockY)
+    {
+        _guides.Clear();
+        if (_snapTargets.Count == 0 || _grabBox0.Width <= 0) return d;
+        double tol = 6 / _zoom;
+        var b = _grabBox0.Offset(d);
+        double bestX = tol, bestY = tol;
+        double? sx = null, sy = null;
+        Span<double> mx = [b.Left, b.Center.X, b.Right], my = [b.Top, b.Center.Y, b.Bottom];
+        foreach (var t in _snapTargets)
+        {
+            Span<double> tx = [t.Left, t.Center.X, t.Right], ty = [t.Top, t.Center.Y, t.Bottom];
+            for (int i = 0; i < 3; i++)
+                for (int j = 0; j < 3; j++)
+                {
+                    double ddx = tx[j] - mx[i], ddy = ty[j] - my[i];
+                    if (!lockX && Math.Abs(ddx) < bestX) { bestX = Math.Abs(ddx); sx = ddx; }
+                    if (!lockY && Math.Abs(ddy) < bestY) { bestY = Math.Abs(ddy); sy = ddy; }
+                }
+        }
+        d = new Vec(d.X + (sx ?? 0), d.Y + (sy ?? 0));
+
+        // linie pomocnicze: każda linia kafelka, która pokrywa się z linią któregoś sąsiada
+        b = _grabBox0.Offset(d);
+        mx = [b.Left, b.Center.X, b.Right];
+        my = [b.Top, b.Center.Y, b.Bottom];
+        foreach (var x in mx)
+        {
+            double top = b.Top, bottom = b.Bottom;
+            bool any = false;
+            foreach (var t in _snapTargets)
+                if (Math.Abs(t.Left - x) < 0.5 || Math.Abs(t.Center.X - x) < 0.5 || Math.Abs(t.Right - x) < 0.5)
+                {
+                    any = true;
+                    top = Math.Min(top, t.Top);
+                    bottom = Math.Max(bottom, t.Bottom);
+                }
+            if (any) _guides.Add((new Vec(x, top - 8), new Vec(x, bottom + 8)));
+        }
+        foreach (var y in my)
+        {
+            double left = b.Left, right = b.Right;
+            bool any = false;
+            foreach (var t in _snapTargets)
+                if (Math.Abs(t.Top - y) < 0.5 || Math.Abs(t.Center.Y - y) < 0.5 || Math.Abs(t.Bottom - y) < 0.5)
+                {
+                    any = true;
+                    left = Math.Min(left, t.Left);
+                    right = Math.Max(right, t.Right);
+                }
+            if (any) _guides.Add((new Vec(left - 8, y), new Vec(right + 8, y)));
+        }
+        return d;
+    }
+
     private Point _marqueeEnd;
     private readonly HashSet<string> _marqueeHits = [];
 
@@ -335,7 +482,7 @@ public sealed partial class MapCanvas
                 _lastClickPos = _pressScreen;
                 OnClick();
                 break;
-            case DragMode.MoveNodes or DragMode.BendLink or DragMode.MoveHandle:
+            case DragMode.MoveNodes or DragMode.BendLink or DragMode.MoveHandle or DragMode.ResizeWidth:
                 _session.EndBatch();
                 break;
             case DragMode.Connect when click:
@@ -349,32 +496,43 @@ public sealed partial class MapCanvas
         _connectPreview = null;
         _dropTarget = null;
         _bendVia = null;
+        _guides.Clear();
+        _snapTargets = [];
+        DropDragCache();
         HintChanged?.Invoke(null);
         UpdateOverlay();
+        PointerInteractionEnded?.Invoke();
     }
 
     /// <summary>Przerywa przeciąganie (Esc, zmiana mapy) i cofa jego skutki.</summary>
     private void CancelInteraction()
     {
-        if (_drag is DragMode.MoveNodes or DragMode.BendLink or DragMode.MoveHandle) _session.CancelBatch();
+        if (DragEditsMap) _session.CancelBatch();
         _drag = DragMode.None;
         _marqueeHits.Clear();
+        _guides.Clear();
+        DropDragCache();
         _connectPreview = null;
         _dropTarget = null;
         ExitConnectMode();
+        ExitLinkPick();
         ReleasePointerCaptures();
         UpdateOverlay();
+        PointerInteractionEnded?.Invoke();
     }
 
     private void OnClick()
     {
         switch (_pressHit.Kind)
         {
-            case HitKind.Node when !_pressCtrl && !_pressShift && _session.SelectedNodes.Count + _session.SelectedLinks.Count > 1:
+            case HitKind.Node when !_pressCtrl && !_pressShift && _session.SelectionCount > 1:
                 _session.SelectNode(_pressHit.Id!);
                 break;
-            case HitKind.Link when !_pressCtrl && !_pressShift && _session.SelectedNodes.Count + _session.SelectedLinks.Count > 1:
+            case HitKind.Link when !_pressCtrl && !_pressShift && _session.SelectionCount > 1:
                 _session.SelectLink(_pressHit.Id!);
+                break;
+            case HitKind.Frame when !_pressCtrl && !_pressShift && _session.SelectionCount > 1:
+                _session.SelectFrame(_pressHit.Id!);
                 break;
             case HitKind.ConnectHandle:
                 AddChild();
@@ -404,7 +562,7 @@ public sealed partial class MapCanvas
 
     private void UpdateHoverCursor(Vec w, VirtualKeyModifiers mods)
     {
-        if (_connectModeFrom is not null)
+        if (_connectModeFrom is not null || _linkPickFrom is not null)
         {
             SetCursor(CrossCursor);
             return;
@@ -418,7 +576,7 @@ public sealed partial class MapCanvas
         bool ctrl = mods.HasFlag(VirtualKeyModifiers.Control);
         var linked = hit.Kind is HitKind.Node or HitKind.LinkMark ? _session.Index.Get(hit.Id)?.Link : null;
         string? hint = linked is { Length: > 0 }
-            ? $"Link: {LinkTargets.Describe(linked)} — {(hit.Kind == HitKind.LinkMark ? "kliknij" : "Ctrl+klik")}, żeby otworzyć"
+            ? $"Link: {DescribeLink(linked)} — {(hit.Kind == HitKind.LinkMark ? "kliknij" : "Ctrl+klik")}, żeby otworzyć"
             : null;
         if (hint != _hoverHint)
         {
@@ -427,13 +585,26 @@ public sealed partial class MapCanvas
         }
         SetCursor(hit.Kind switch
         {
+            HitKind.WidthHandle => SizeWeCursor,
             HitKind.Node when ctrl && linked is { Length: > 0 } => HandCursor,
-            HitKind.Node => MoveCursor,
+            HitKind.Node or HitKind.Frame => MoveCursor,
             HitKind.Link when _session.SelectedLinks.Contains(hit.Id!) => MoveCursor,
             HitKind.Link or HitKind.Badge or HitKind.LinkMark or HitKind.LinkHandle1 or HitKind.LinkHandle2 or HitKind.ConnectHandle => HandCursor,
             _ when mods.HasFlag(VirtualKeyModifiers.Shift) || mods.HasFlag(VirtualKeyModifiers.Control) => CrossCursor,
             _ => HandCursors.Get(grab: false) ?? ArrowCursor,
         });
+    }
+
+    /// <summary>Opis linku; dla kafelka tej samej mapy — jego tekst.</summary>
+    private string DescribeLink(string link)
+    {
+        var t = link.Trim();
+        if (t.StartsWith('#') && _session.Index.Get(t[1..]) is { } target)
+        {
+            var text = target.Text.Replace('\n', ' ').Trim();
+            return $"kafelek „{(text.Length > 40 ? text[..39] + "…" : text)}”";
+        }
+        return LinkTargets.Describe(link);
     }
 
     private void OnPointerWheel(object sender, PointerRoutedEventArgs e)
@@ -442,7 +613,8 @@ public sealed partial class MapCanvas
         int delta = pt.Properties.MouseWheelDelta;
         if (pt.Properties.IsHorizontalMouseWheel) PanBy(-delta, 0);
         else if (e.KeyModifiers.HasFlag(VirtualKeyModifiers.Shift)) PanBy(delta, 0);
-        else ZoomAt(pt.Position, _zoom * Math.Pow(1.0015, delta));
+        // nad minimapą powiększamy wokół środka widoku (punkt pod kursorem leży wtedy „pod” minimapą)
+        else ZoomAt(MinimapContains(pt.Position) ? ViewCenter : pt.Position, _zoom * Math.Pow(1.0015, delta));
         e.Handled = true;
     }
 
@@ -450,6 +622,10 @@ public sealed partial class MapCanvas
     {
         switch (hit.Kind)
         {
+            case HitKind.WidthHandle when _session.Index.Get(hit.Id) is { Width: not null } wn:
+                // dwuklik na uchwycie: szerokość znów automatyczna
+                _session.Edit(_ => wn.Width = null);
+                break;
             case HitKind.Node:
                 _session.SelectNode(hit.Id!);
                 BeginEdit(hit.Id!);
@@ -457,6 +633,10 @@ public sealed partial class MapCanvas
             case HitKind.Link:
                 _session.SelectLink(hit.Id!);
                 BeginLabelEdit(hit.Id!);
+                break;
+            case HitKind.Frame:
+                _session.SelectFrame(hit.Id!);
+                BeginFrameTitleEdit(hit.Id!);
                 break;
             case HitKind.None:
                 CreateAndEdit(m => MapOps.AddFloating(m, w));
@@ -478,6 +658,29 @@ public sealed partial class MapCanvas
     {
         if (_connectModeFrom is null) return;
         _connectModeFrom = null;
+        HintChanged?.Invoke(null);
+    }
+
+    // ================================================================== wskazywanie kafelka do linku
+
+    private string? _linkPickFrom;
+
+    /// <summary>Następny klik w kafelek ustawi link zaznaczonego kafelka na niego („#id”).</summary>
+    public void EnterLinkPickMode()
+    {
+        if (_session.SingleNode is not { } n) return;
+        CommitEdit();
+        ExitConnectMode();
+        _linkPickFrom = n.Id;
+        SetCursor(CrossCursor);
+        Focus(FocusState.Programmatic);
+        HintChanged?.Invoke("Kliknij kafelek, do którego ma prowadzić link (Esc — anuluj)");
+    }
+
+    private void ExitLinkPick()
+    {
+        if (_linkPickFrom is null) return;
+        _linkPickFrom = null;
         HintChanged?.Invoke(null);
     }
 
@@ -522,7 +725,8 @@ public sealed partial class MapCanvas
                 DeleteSelection();
                 break;
             case VirtualKey.Escape:
-                if (_connectModeFrom is not null || _drag != DragMode.None) CancelInteraction();
+                if (_connectModeFrom is not null || _linkPickFrom is not null || _drag != DragMode.None) CancelInteraction();
+                else if (_session.SelectionCount == 0 && _focusId is not null) ExitFocus();
                 else _session.ClearSelection();
                 break;
             case VirtualKey.Space:
@@ -573,6 +777,9 @@ public sealed partial class MapCanvas
                 break;
             case VirtualKey.L when cmd:
                 ConnectSelected();
+                break;
+            case VirtualKey.G when cmd:
+                FrameSelection();
                 break;
             case VirtualKey.R when cmd:
                 ArrangeSelection();
@@ -638,6 +845,11 @@ public sealed partial class MapCanvas
             BeginLabelEdit(_session.SelectedLinks.First(), ch.ToString());
             e.Handled = true;
         }
+        else if (_session.SingleFrame is { } f)
+        {
+            BeginFrameTitleEdit(f.Id, ch.ToString());
+            e.Handled = true;
+        }
     }
 
     private void Navigate(Direction dir)
@@ -672,6 +884,7 @@ public sealed partial class MapCanvas
         {
             HitKind.Node or HitKind.Badge => NodeMenu(),
             HitKind.Link => LinkMenu(),
+            HitKind.Frame => FrameMenu(),
             _ => CanvasMenu(w),
         };
         menu.ShowAt(this, new FlyoutShowOptions { Position = pos });
@@ -714,7 +927,7 @@ public sealed partial class MapCanvas
         menu.Items.Add(new MenuFlyoutSeparator());
 
         var styles = new MenuFlyoutSubItem { Text = "Styl", Icon = new FontIcon { Glyph = "" } };
-        foreach (var p in Styles.Presets)
+        foreach (var p in CustomPresets.Concat(Styles.Presets))
         {
             var preset = p;
             var it = new MenuFlyoutItem { Text = p.Name };
@@ -760,7 +973,47 @@ public sealed partial class MapCanvas
             menu.Items.Add(Item("Uporządkuj gałąź", "", ArrangeSelection, "Ctrl+R"));
         }
         if (anyParent) menu.Items.Add(Item("Odłącz od rodzica", "", DetachSelection));
-        if (anyChildren || anyParent) menu.Items.Add(new MenuFlyoutSeparator());
+        if (sel.Count >= 2)
+        {
+            var align = new MenuFlyoutSubItem { Text = "Wyrównaj", Icon = new FontIcon { Glyph = "" } };
+            foreach (var (mode, text, glyph) in AlignCommands)
+            {
+                var m = mode;
+                align.Items.Add(Item(text, glyph, () => AlignSelection(m)));
+                if (m == AlignMode.Right) align.Items.Add(new MenuFlyoutSeparator());
+            }
+            align.Items.Add(new MenuFlyoutSeparator());
+            align.Items.Add(Item("Rozłóż równo w poziomie", "", () => DistributeSelection(true), enabled: sel.Count >= 3));
+            align.Items.Add(Item("Rozłóż równo w pionie", "", () => DistributeSelection(false), enabled: sel.Count >= 3));
+            menu.Items.Add(align);
+        }
+        menu.Items.Add(Item(_focusId is null ? "Pokaż tylko tę gałąź" : "Pokaż całą mapę", "", ToggleFocus, "Ctrl+Shift+F"));
+        menu.Items.Add(new MenuFlyoutSeparator());
+
+        if (single)
+        {
+            var node = sel[0];
+            menu.Items.Add(Item("Kopiuj link do kafelka", "", () => CopyNodeLink(node)));
+        }
+
+        // ramki
+        menu.Items.Add(Item("Otocz ramką", "", FrameSelection, "Ctrl+G"));
+        var ids = sel.Select(n => n.Id).ToList();
+        var frames = _session.Map.Frames ?? [];
+        var addable = frames.Where(f => !ids.All(f.Nodes.Contains)).ToList();
+        if (addable.Count > 0)
+        {
+            var add = new MenuFlyoutSubItem { Text = "Dodaj do ramki", Icon = new FontIcon { Glyph = "" } };
+            foreach (var f in addable)
+            {
+                var frame = f;
+                add.Items.Add(Item(FrameName(frame), "", () => _session.Edit(_ => MapOps.AddToFrame(frame, ids))));
+            }
+            menu.Items.Add(add);
+        }
+        if (frames.Any(f => f.Nodes.Any(ids.Contains)))
+            menu.Items.Add(Item("Wyjmij z ramki", "", () => _session.Edit(m => MapOps.RemoveFromFrames(m, ids))));
+        menu.Items.Add(new MenuFlyoutSeparator());
 
         menu.Items.Add(Item("Kopiuj", "", () => _ = CopyAsync(false), "Ctrl+C"));
         menu.Items.Add(Item("Wytnij", "", () => _ = CopyAsync(true), "Ctrl+X"));
@@ -768,6 +1021,14 @@ public sealed partial class MapCanvas
         menu.Items.Add(Item("Usuń", "", DeleteSelection, "Del"));
         return menu;
     }
+
+    /// <summary>Polecenia wyrównania (menu kontekstowe i panel właściwości).</summary>
+    internal static readonly (AlignMode Mode, string Text, string Glyph)[] AlignCommands =
+    [
+        (AlignMode.Left, "Do lewej krawędzi", ""), (AlignMode.CenterX, "Do środka (w poziomie)", ""),
+        (AlignMode.Right, "Do prawej krawędzi", ""), (AlignMode.Top, "Do górnej krawędzi", ""),
+        (AlignMode.CenterY, "Do środka (w pionie)", ""), (AlignMode.Bottom, "Do dolnej krawędzi", ""),
+    ];
 
     internal static readonly (NodeShape Shape, string Name)[] ShapeNames =
     [
@@ -783,9 +1044,15 @@ public sealed partial class MapCanvas
         var menu = new MenuFlyout();
         menu.Items.Add(Item("Edytuj podpis", "", () => { if (single) BeginLabelEdit(links[0].Id); }, "F2", single));
         menu.Items.Add(Item("Odwróć kierunek", "", () => _session.Edit(_ => links.ForEach(MapOps.Reverse))));
-        bool straight = links.All(l => Styles.Resolve(l.Style).Curve == LinkCurve.Straight);
-        menu.Items.Add(Item(straight ? "Zakrzywiona" : "Prosta", straight ? "" : "",
-            () => _session.Edit(_ => links.ForEach(l => MapOps.EditStyle(l, s => s.Curve = straight ? null : LinkCurve.Straight)))));
+        var shape = new MenuFlyoutSubItem { Text = "Kształt linii", Icon = new FontIcon { Glyph = "" } };
+        foreach (var (curve, name) in CurveNames)
+        {
+            var c = curve;
+            var it = new ToggleMenuFlyoutItem { Text = name, IsChecked = links.All(l => Styles.Resolve(l.Style).Curve == c) };
+            it.Click += (_, _) => _session.Edit(_ => links.ForEach(l => SetCurve(l, c)));
+            shape.Items.Add(it);
+        }
+        menu.Items.Add(shape);
         menu.Items.Add(Item("Przywróć domyślną krzywiznę", "", () => _session.Edit(_ => links.ForEach(l => { l.C1 = l.C2 = null; l.Via = null; }))));
         menu.Items.Add(new MenuFlyoutSeparator());
         bool start = links.All(l => Styles.Resolve(l.Style).ArrowStart);
@@ -796,6 +1063,55 @@ public sealed partial class MapCanvas
             i.Click += (_, _) => _session.Edit(_ => links.ForEach(l => MapOps.EditStyle(l, s => s.ArrowEnd = end ? false : null)))));
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(Item("Usuń", "", DeleteSelection, "Del"));
+        return menu;
+    }
+
+    /// <summary>Własne style użytkownika (z ustawień) — pokazywane przed gotowymi w menu „Styl”.</summary>
+    public IReadOnlyList<StylePreset> CustomPresets { get; set; } = [];
+
+    internal static readonly (LinkCurve Curve, string Name)[] CurveNames =
+        [(LinkCurve.Curved, "Zakrzywiona"), (LinkCurve.Straight, "Prosta"), (LinkCurve.Elbow, "Łamana (pod kątem prostym)")];
+
+    /// <summary>Zmiana kształtu linii; przy przejściu na łamaną albo z niej kształt wraca do domyślnego (inne znaczenie punktów).</summary>
+    internal static void SetCurve(Link l, LinkCurve curve)
+    {
+        var before = Styles.Resolve(l.Style).Curve;
+        if (before == curve) return;
+        if (before == LinkCurve.Elbow || curve == LinkCurve.Elbow) l.C1 = l.C2 = null;
+        MapOps.EditStyle(l, s => s.Curve = curve == LinkCurve.Curved ? null : curve);
+    }
+
+    internal static string FrameName(Frame f) => string.IsNullOrWhiteSpace(f.Title) ? "Ramka bez nazwy" : f.Title.Trim();
+
+    private MenuFlyout FrameMenu()
+    {
+        var frames = _session.SelectedFrameObjects.ToList();
+        bool single = frames.Count == 1;
+        var menu = new MenuFlyout();
+        menu.Items.Add(Item("Zmień nazwę", "", () => { if (single) BeginFrameTitleEdit(frames[0].Id); }, "F2", single));
+        var colors = new MenuFlyoutSubItem { Text = "Kolor", Icon = new FontIcon { Glyph = "" } };
+        foreach (var (color, name) in Styles.FrameColors)
+        {
+            var c = color;
+            var it = new ToggleMenuFlyoutItem
+            {
+                Text = name,
+                IsChecked = frames.Count > 0 && frames.All(f => Styles.FrameColor(f) == Rgba.Parse(c, Rgba.Black)),
+            };
+            it.Click += (_, _) => _session.Edit(_ => frames.ForEach(f => f.Color = c == Styles.FrameColors[0].Color ? null : c));
+            colors.Items.Add(it);
+        }
+        menu.Items.Add(colors);
+        menu.Items.Add(Item("Zaznacz kafelki w ramce", "", () => _session.Select(frames.SelectMany(f => f.Nodes))));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(Item("Usuń ramkę (kafelki zostają)", "", DeleteSelection, "Del"));
+        menu.Items.Add(Item("Usuń ramkę razem z kafelkami", "", () =>
+        {
+            var nodes = frames.SelectMany(f => f.Nodes).ToList();
+            var ids = frames.Select(f => f.Id).ToList();
+            _session.Edit(m => MapOps.Delete(m, nodes, null, ids));
+            _session.ClearSelection();
+        }));
         return menu;
     }
 

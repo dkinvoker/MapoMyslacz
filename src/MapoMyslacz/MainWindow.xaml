@@ -83,6 +83,12 @@
                             <MenuFlyoutItem Text="Importuj z XMind…" Click="ImportXmind_Click">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B5;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Importuj konspekt (Markdown, tekst)…" Click="ImportOutline_Click">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A4;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Eksportuj konspekt (Markdown)…" Click="ExportMarkdown_Click">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A5;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
                             <MenuFlyoutItem Text="Eksportuj obraz PNG…" Click="ExportPng_Click" KeyboardAcceleratorTextOverride="Ctrl+E">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEB9F;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
@@ -180,6 +186,25 @@
                 <Button Style="{StaticResource ToolButton}" Click="Fit_Click" ToolTipService.ToolTip="Pokaż całą mapę (Ctrl+0)">
                     <FontIcon Glyph="&#xE9A6;" Style="{StaticResource ToolIcon}" />
                 </Button>
+                <Button Style="{StaticResource ToolButton}" Click="Search_Click" ToolTipService.ToolTip="Szukaj w kafelkach i notatkach (Ctrl+F)">
+                    <FontIcon Glyph="&#xE721;" Style="{StaticResource ToolIcon}" />
+                </Button>
+                <DropDownButton Style="{StaticResource ToolDropDown}" ToolTipService.ToolTip="Widok">
+                    <FontIcon Glyph="&#xE890;" Style="{StaticResource ToolIcon}" />
+                    <DropDownButton.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight" Opening="ViewMenu_Opening">
+                            <MenuFlyoutItem Text="Szukaj…" Click="Search_Click" KeyboardAcceleratorTextOverride="Ctrl+F">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE721;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="FocusMenuItem" Text="Pokaż tylko zaznaczoną gałąź" Click="Focus_Click" KeyboardAcceleratorTextOverride="Ctrl+Shift+F">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE71C;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutSeparator />
+                            <ToggleMenuFlyoutItem x:Name="MinimapToggle" Text="Minimapa (gdy mapa nie mieści się w oknie)" Click="MinimapToggle_Click" />
+                            <ToggleMenuFlyoutItem x:Name="GridToggle" Text="Siatka kropek" Click="GridToggle_Click" />
+                        </MenuFlyout>
+                    </DropDownButton.Flyout>
+                </DropDownButton>
                 <AppBarSeparator />
                 <ToggleButton x:Name="PanelToggle" Background="Transparent" BorderBrush="Transparent"
                               Padding="9,7" IsChecked="True" Click="PanelToggle_Click" ToolTipService.ToolTip="Panel właściwości">
@@ -234,6 +259,39 @@
                         </StackPanel>
                     </InfoBar.Content>
                 </InfoBar>
+            </Border>
+
+            <!-- wyszukiwarka (Ctrl+F) -->
+            <Border x:Name="SearchHost" VerticalAlignment="Top" HorizontalAlignment="Right" Margin="12" Padding="6,5"
+                    Visibility="Collapsed" CornerRadius="8" BorderThickness="1"
+                    Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                    <TextBox x:Name="SearchBox" Width="230" PlaceholderText="Szukaj w kafelkach i notatkach"
+                             TextChanged="SearchBox_TextChanged" PreviewKeyDown="SearchBox_PreviewKeyDown" />
+                    <TextBlock x:Name="SearchCount" VerticalAlignment="Center" MinWidth="54" TextAlignment="Center" FontSize="12" Opacity="0.8" />
+                    <Button Style="{StaticResource ToolButton}" Click="SearchPrev_Click" ToolTipService.ToolTip="Poprzedni (Shift+Enter, Shift+F3)">
+                        <FontIcon Glyph="&#xE70E;" FontSize="13" />
+                    </Button>
+                    <Button Style="{StaticResource ToolButton}" Click="SearchNext_Click" ToolTipService.ToolTip="Następny (Enter, F3)">
+                        <FontIcon Glyph="&#xE70D;" FontSize="13" />
+                    </Button>
+                    <Button Style="{StaticResource ToolButton}" Click="SearchClose_Click" ToolTipService.ToolTip="Zamknij (Esc)">
+                        <FontIcon Glyph="&#xE711;" FontSize="12" />
+                    </Button>
+                </StackPanel>
+            </Border>
+
+            <!-- fokus na gałęzi -->
+            <Border x:Name="FocusHost" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="12" Padding="12,3,3,3"
+                    Visibility="Collapsed" CornerRadius="18" BorderThickness="1"
+                    Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" BorderBrush="{ThemeResource AccentFillColorDefaultBrush}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE71C;" FontSize="14" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                    <TextBlock x:Name="FocusText" VerticalAlignment="Center" MaxWidth="380" TextTrimming="CharacterEllipsis" FontSize="13" />
+                    <Button Style="{StaticResource ToolButton}" Padding="7" Click="FocusExit_Click" ToolTipService.ToolTip="Pokaż całą mapę (Esc)">
+                        <FontIcon Glyph="&#xE711;" FontSize="11" />
+                    </Button>
+                </StackPanel>
             </Border>
 
             <Border x:Name="ToastHost" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="16" MaxWidth="640"

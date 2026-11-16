@@ -141,6 +141,7 @@ public sealed partial class MainWindow
         try
         {
             if (path.EndsWith(".xmind", StringComparison.OrdinalIgnoreCase)) return await ImportXmindFileAsync(path);
+            if (IsOutlineFile(path)) return ImportOutlineFile(path);
             var session = MapSession.Open(path);
             LoadSession(session);
             _settings.AddRecent(path);
@@ -152,6 +153,49 @@ public sealed partial class MainWindow
             return false;
         }
     }
+
+    internal static bool IsOutlineFile(string path) =>
+        path.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase);
+
+    private async Task ImportOutlineAsync()
+    {
+        if (!await ConfirmDiscardAsync()) return;
+        if (await PickOpenAsync(".md", ".txt", ".markdown") is { } path) await OpenFileAsync(path, confirm: false);
+    }
+
+    /// <summary>Konspekt (Markdown albo tekst z wcięciami) jako nowa, jeszcze niezapisana mapa.</summary>
+    private bool ImportOutlineFile(string path)
+    {
+        var map = MarkdownOutline.Parse(File.ReadAllText(path, System.Text.Encoding.UTF8));
+        if (map.Nodes.Count == 0) throw new InvalidDataException("Plik nie zawiera żadnych punktów konspektu.");
+        map.Title ??= Path.GetFileNameWithoutExtension(path);
+        var session = new MapSession(map);
+        session.MarkDirty();
+        LoadSession(session);
+        ClearBackStack();
+        ShowToast($"Zaimportowano konspekt ({map.Nodes.Count} {Plural(map.Nodes.Count, "kafelek", "kafelki", "kafelków")}) — zapisz go (Ctrl+S) jako mapę .mapo.", InfoBarSeverity.Informational);
+        return true;
+    }
+
+    private async Task ExportMarkdownAsync()
+    {
+        Map.CommitEdit();
+        var path = await PickSaveAsync(SafeFileName(_session.Map.Title ?? _session.DisplayName), "Konspekt Markdown", ".md");
+        if (path is null) return;
+        try
+        {
+            File.WriteAllText(path, MarkdownOutline.Write(_session.Map), new System.Text.UTF8Encoding(false));
+            ShowToast($"Zapisano konspekt: {Path.GetFileName(path)}");
+        }
+        catch (Exception ex)
+        {
+            await ShowErrorAsync("Nie udało się zapisać konspektu", ex.Message);
+        }
+    }
+
+    private void ImportOutline_Click(object sender, RoutedEventArgs e) => _ = ImportOutlineAsync();
+    private void ExportMarkdown_Click(object sender, RoutedEventArgs e) => _ = ExportMarkdownAsync();
 
     private async Task ImportXmindAsync()
     {
@@ -200,9 +244,11 @@ public sealed partial class MainWindow
         }
         try
         {
+            bool moved = _session.FilePath != path;
             _session.SaveAs(path, Map.CurrentView);
             _settings.AddRecent(path);
             UpdateTitle();
+            if (moved) RefreshBacklinks();
             ShowToast($"Zapisano: {Path.GetFileName(path)}");
             return true;
         }

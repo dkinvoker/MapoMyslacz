@@ -25,6 +25,7 @@ public sealed partial class MapCanvas : Grid
 {
     public const double MinZoom = 0.05, MaxZoom = 4;
     internal static readonly Rgba Accent = Rgba.Parse("#7C3AED", Rgba.Black);
+    private static readonly Rgba GuideColor = Rgba.Parse("#E5484D", Rgba.Black);
 
     private MapSession _session = new();
     private readonly CanvasControl _canvas = new() { UseSharedDevice = true };
@@ -82,7 +83,9 @@ public sealed partial class MapCanvas : Grid
     /// <summary>Zwalnia powierzchnię Win2D przy zamykaniu okna.</summary>
     public void Shutdown()
     {
+        StopAnimation();
         DropSceneCache();
+        DropMinimap();
         _canvas.RemoveFromVisualTree();
         _scene.Dispose();
     }
@@ -93,8 +96,12 @@ public sealed partial class MapCanvas : Grid
         set
         {
             if (ReferenceEquals(_session, value)) return;
+            StopAnimation();
             CancelInteraction();
             CommitEdit();
+            _searchHits.Clear();
+            _searchCurrent = null;
+            ExitFocus();
             _session.Changed -= OnSessionChanged;
             _session.SelectionChanged -= OnSelectionChanged;
             _session = value;
@@ -122,7 +129,7 @@ public sealed partial class MapCanvas : Grid
     {
         _viewInitialized = true;
         if (_session.InitialView is { } v) SetView(v);
-        else FitToContent();
+        else FitToContent(animate: false);
     }
 
     private void OnSessionChanged()
@@ -168,27 +175,113 @@ public sealed partial class MapCanvas : Grid
 
     public void SetView(ViewState v)
     {
-        _zoom = Math.Clamp(v.Zoom <= 0 ? 1 : v.Zoom, MinZoom, MaxZoom);
-        _pan = new Vec(ActualWidth / 2 - v.X * _zoom, ActualHeight / 2 - v.Y * _zoom);
+        StopAnimation();
+        SetViewCore(v.X, v.Y, v.Zoom);
+    }
+
+    private void SetViewCore(double x, double y, double zoom)
+    {
+        _zoom = Math.Clamp(zoom <= 0 ? 1 : zoom, MinZoom, MaxZoom);
+        _pan = new Vec(ActualWidth / 2 - x * _zoom, ActualHeight / 2 - y * _zoom);
         ApplyTransform();
     }
 
     public void ZoomAt(Point screen, double zoom)
     {
+        StopAnimation();
         var w = ToWorld(screen);
         _zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
         _pan = new Vec(screen.X - w.X * _zoom, screen.Y - w.Y * _zoom);
         ApplyTransform();
     }
 
-    public void ZoomBy(double factor) => ZoomAt(ViewCenter, _zoom * factor);
+    /// <summary>Powiększenie wokół środka widoku — płynnie (kolejne naciśnięcia sumują się z trwającą animacją).</summary>
+    public void ZoomBy(double factor)
+    {
+        var target = _animTo ?? ExactView;
+        AnimateTo(target.X, target.Y, Math.Clamp(target.Zoom * factor, MinZoom, MaxZoom), 160);
+    }
 
-    public void ZoomTo(double zoom) => ZoomAt(ViewCenter, zoom);
+    public void ZoomTo(double zoom)
+    {
+        var c = _animTo ?? ExactView;
+        AnimateTo(c.X, c.Y, zoom, 220);
+    }
 
     public void PanBy(double dx, double dy)
     {
+        StopAnimation();
         _pan = new Vec(_pan.X + dx, _pan.Y + dy);
         ApplyTransform();
+    }
+
+    // ------------------------------------------------------------------ płynne przejścia widoku
+
+    private readonly record struct ViewPoint(double X, double Y, double Zoom);
+
+    private ViewPoint? _animFrom, _animTo;
+    private long _animStart;
+    private double _animMs;
+    private bool _animating;
+
+    private ViewPoint ExactView
+    {
+        get
+        {
+            var c = ToWorld(ViewCenter);
+            return new ViewPoint(c.X, c.Y, _zoom);
+        }
+    }
+
+    /// <summary>Płynne przejście widoku (środek w układzie mapy + powiększenie), np. „Pokaż całą mapę”, wyszukiwanie.</summary>
+    private void AnimateTo(double x, double y, double zoom, double ms = 300)
+    {
+        zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
+        if (ActualWidth <= 0 || !_viewInitialized || !IsLoaded)
+        {
+            SetViewCore(x, y, zoom);
+            return;
+        }
+        _animFrom = ExactView;
+        _animTo = new ViewPoint(x, y, zoom);
+        _animStart = Stopwatch.GetTimestamp();
+        _animMs = ms;
+        if (_animating) return;
+        _animating = true;
+        CompositionTarget.Rendering += OnAnimationFrame;
+    }
+
+    private void OnAnimationFrame(object? sender, object e)
+    {
+        if (_animFrom is not { } a || _animTo is not { } b)
+        {
+            StopAnimation();
+            return;
+        }
+        double t = Math.Min(1, Stopwatch.GetElapsedTime(_animStart).TotalMilliseconds / _animMs);
+        double k = 1 - Math.Pow(1 - t, 3); // szybki start, łagodne hamowanie
+        // powiększenie w skali logarytmicznej — przybliżanie i oddalanie wyglądają tak samo płynnie
+        double zoom = Math.Exp(Math.Log(a.Zoom) + (Math.Log(b.Zoom) - Math.Log(a.Zoom)) * k);
+        SetViewCore(a.X + (b.X - a.X) * k, a.Y + (b.Y - a.Y) * k, zoom);
+        if (t >= 1) StopAnimation();
+    }
+
+    /// <summary>Przerywa płynne przejście (np. gdy użytkownik sam łapie płótno).</summary>
+    public void StopAnimation()
+    {
+        _animFrom = _animTo = null;
+        if (!_animating) return;
+        _animating = false;
+        CompositionTarget.Rendering -= OnAnimationFrame;
+    }
+
+    /// <summary>Ustawia kafelek na środku widoku (z przybliżeniem, gdy tekst byłby nieczytelnie mały).</summary>
+    public void CenterOn(string nodeId)
+    {
+        if (!_nodes.TryGetValue(nodeId, out var v)) return;
+        var target = _animTo ?? ExactView;
+        double zoom = v.Style.FontSize * target.Zoom < 9 ? Math.Max(target.Zoom, Math.Min(1, 12 / v.Style.FontSize)) : target.Zoom;
+        AnimateTo(v.X, v.Y, zoom);
     }
 
     /// <summary>Granice treści mapy (kafelki, strzałki, podpisy) albo wskazanych kafelków.</summary>
@@ -197,8 +290,8 @@ public sealed partial class MapCanvas : Grid
             ? _scene.ContentBounds()
             : Box.Union(onlyNodes.Where(_nodes.ContainsKey).Select(id => _nodes[id].Bounds));
 
-    /// <summary>Pokazuje całą mapę (albo zaznaczenie).</summary>
-    public void FitToContent(bool selectionOnly = false)
+    /// <summary>Pokazuje całą mapę (albo zaznaczenie) — domyślnie płynnym przejściem.</summary>
+    public void FitToContent(bool selectionOnly = false, bool animate = true)
     {
         if (ActualWidth <= 0) return;
         var bounds = selectionOnly && _session.SelectedNodes.Count > 0 ? ContentBounds(_session.SelectedNodes) : ContentBounds();
@@ -210,10 +303,11 @@ public sealed partial class MapCanvas : Grid
         double margin = 60;
         double zoom = Math.Min((ActualWidth - margin) / Math.Max(1, b.Width), (ActualHeight - margin) / Math.Max(1, b.Height));
         zoom = Math.Clamp(Math.Min(zoom, 1.25), MinZoom, MaxZoom);
-        SetView(new ViewState { X = b.Center.X, Y = b.Center.Y, Zoom = zoom });
+        if (animate) AnimateTo(b.Center.X, b.Center.Y, zoom);
+        else SetView(new ViewState { X = b.Center.X, Y = b.Center.Y, Zoom = zoom });
     }
 
-    /// <summary>Przesuwa widok tak, żeby kafelek był widoczny (z marginesem).</summary>
+    /// <summary>Przesuwa widok tak, żeby kafelek był widoczny (z marginesem) — krótkim płynnym przejściem.</summary>
     public void EnsureVisible(string nodeId)
     {
         if (!_nodes.TryGetValue(nodeId, out var v) || ActualWidth <= 0) return;
@@ -225,7 +319,9 @@ public sealed partial class MapCanvas : Grid
         else if (br.X > ActualWidth) dx = ActualWidth - br.X;
         if (tl.Y < 0) dy = -tl.Y;
         else if (br.Y > ActualHeight) dy = ActualHeight - br.Y;
-        if (dx != 0 || dy != 0) PanBy(dx, dy);
+        if (dx == 0 && dy == 0) return;
+        var c = ExactView;
+        AnimateTo(c.X - dx / _zoom, c.Y - dy / _zoom, _zoom, 180);
     }
 
     // ================================================================== budowanie sceny
@@ -241,12 +337,14 @@ public sealed partial class MapCanvas : Grid
         _scene.EditingId = _editNodeId;
         _scene.Build(map, _session.Index, _canvasColor);
         _sceneVersion++;
+        UpdateFocusSet();
         UpdateOverlay();
     }
 
     private void RebuildAll()
     {
         DropSceneCache();
+        DropMinimap();
         _scene.Dispose();
         Rebuild();
     }
@@ -279,18 +377,27 @@ public sealed partial class MapCanvas : Grid
     private void UpdateOverlay()
     {
         _connectHandle = null;
-        if (_editor is null && _labelEditor is null && _drag == DragMode.None && _session.SingleNode is { } single
+        _widthHandle = null;
+        if (_editor is null && _labelEditor is null && _drag is DragMode.None or DragMode.ResizeWidth && _session.SingleNode is { } single
             && _nodes.TryGetValue(single.Id, out var nv))
         {
             double px = 1 / _zoom;
-            int side = MapScene.ChildrenSide(_session.Index, single);
             var b = nv.Bounds;
-            var c = new Vec(side > 0 ? b.Right + 16 * px : b.Left - 16 * px, b.Center.Y);
-            if (nv.BadgeBounds is { } badge) c = new Vec(side > 0 ? badge.Right + 14 * px : badge.Left - 14 * px, c.Y);
-            _connectHandle = c;
+            // uchwyt szerokości w prawym dolnym rogu obrysu zaznaczenia
+            double o = 4 * px + nv.Style.BorderWidth / 2;
+            _widthHandle = new Vec(b.Right + o, b.Bottom + o);
+            if (_drag == DragMode.None)
+            {
+                int side = MapScene.ChildrenSide(_session.Index, single);
+                var c = new Vec(side > 0 ? b.Right + 16 * px : b.Left - 16 * px, b.Center.Y);
+                if (nv.BadgeBounds is { } badge) c = new Vec(side > 0 ? badge.Right + 14 * px : badge.Left - 14 * px, c.Y);
+                _connectHandle = c;
+            }
         }
         _canvas.Invalidate();
     }
+
+    private Vec? _widthHandle;
 
     // ------------------------------------------------------------------ bitmapa sceny dla bardzo dużych widoków
 
@@ -314,13 +421,27 @@ public sealed partial class MapCanvas : Grid
         var sw = TraceDraw is null ? null : Stopwatch.StartNew();
         var ds = args.DrawingSession;
         ds.Clear(C(_canvasColor));
+        DrawGrid(ds, new Rect(0, 0, ActualWidth, ActualHeight), _pan);
         var world = Matrix3x2.CreateScale((float)_zoom) * Matrix3x2.CreateTranslation((float)_pan.X, (float)_pan.Y);
         var view = VisibleWorld;
         var visible = view.Inflate(30 / _zoom);
-        // przeciąganie kafelków/strzałek zmienia scenę w każdej klatce — wtedy bitmapa nic by nie dała
-        bool editing = _drag is DragMode.MoveNodes or DragMode.BendLink or DragMode.MoveHandle || _editor is not null;
-        bool cached = false;
-        if (!editing && _scene.CountVisible(visible, HeavyScene) >= HeavyScene)
+        // przeciąganie kafelków/strzałek zmienia scenę w każdej klatce — wtedy zwykła bitmapa nic by nie dała
+        bool editing = DragEditsMap || _editor is not null;
+        bool cached = false, movingOnly = false;
+        if (DragEditsMap && _heavyDrag)
+        {
+            // duża scena w trakcie przeciągania: nieruchoma część z bitmapy, na wierzchu tylko to, co się rusza
+            if (_dragCache is null || _dragCacheZoom != _zoom || !_dragCacheWorld.ContainsBox(view))
+            {
+                _dragCache?.Dispose();
+                (_dragCache, _dragCacheWorld) = RenderCache(sender, view, (cds, area) => _scene.Draw(cds, area, _zoom, moving: _dragDynamic, movingPart: false));
+                _dragCacheZoom = _zoom;
+            }
+            var at = ToScreen(new Vec(_dragCacheWorld.X, _dragCacheWorld.Y));
+            ds.DrawImage(_dragCache, (float)Math.Round(at.X), (float)Math.Round(at.Y));
+            cached = movingOnly = true;
+        }
+        else if (!editing && _scene.CountVisible(visible, HeavyScene) >= HeavyScene)
         {
             if (_sceneCache is null || _cacheZoom != _zoom || _cacheVersion != _sceneVersion || !_cacheWorld.ContainsBox(view))
                 RenderSceneCache(sender, view);
@@ -336,17 +457,53 @@ public sealed partial class MapCanvas : Grid
             DropSceneCache();
         }
         ds.Transform = world;
-        if (!cached) _scene.Draw(ds, visible, _zoom);
+        if (movingOnly) _scene.Draw(ds, visible, _zoom, moving: _dragDynamic, movingPart: true);
+        else if (!cached) _scene.Draw(ds, visible, _zoom);
+        DrawFocus(ds, view, visible);
         DrawOverlay(ds);
         ds.Transform = Matrix3x2.Identity;
+        DrawMinimap(ds);
         if (_drag == DragMode.Marquee) DrawMarquee(ds);
         if (sw is not null) Trace($"draw {sw.Elapsed.TotalMilliseconds:0.0} ms{(cached ? " (z bitmapy)" : "")} ({_nodes.Count} kafelków, {_links.Count} strzałek)");
     }
 
-    /// <summary>Rysuje scenę do bitmapy obejmującej widok z zapasem (po pół ekranu z każdej strony).</summary>
     private void RenderSceneCache(CanvasControl sender, Box view)
     {
         DropSceneCache();
+        (_sceneCache, _cacheWorld) = RenderCache(sender, view, (cds, area) => _scene.Draw(cds, area, _zoom));
+        _cacheZoom = _zoom;
+        _cacheVersion = _sceneVersion;
+    }
+
+    // bitmapa nieruchomej części sceny na czas przeciągania kafelków (duże mapy)
+    private CanvasRenderTarget? _dragCache;
+    private Box _dragCacheWorld;
+    private double _dragCacheZoom;
+    private bool _heavyDrag;
+    private HashSet<string> _dragDynamic = [];
+
+    private void DropDragCache()
+    {
+        _heavyDrag = false;
+        _dragDynamic = [];
+        _dragCache?.Dispose();
+        _dragCache = null;
+    }
+
+    /// <summary>
+    /// Początek zmiany przeciąganiem: na dużej scenie nieruchoma część trafi do bitmapy, a w każdej klatce rysujemy
+    /// tylko <paramref name="dynamic"/> (przeciągane kafelki albo wyginaną strzałkę) z tym, co z nimi połączone.
+    /// </summary>
+    private void PrepareDragCache(HashSet<string> dynamic)
+    {
+        DropDragCache();
+        _dragDynamic = dynamic;
+        _heavyDrag = _scene.CountVisible(VisibleWorld.Inflate(30 / _zoom), HeavyScene) >= HeavyScene;
+    }
+
+    /// <summary>Rysuje (część) sceny do bitmapy obejmującej widok z zapasem (po pół ekranu z każdej strony), z tłem i siatką.</summary>
+    private (CanvasRenderTarget Bitmap, Box World) RenderCache(CanvasControl sender, Box view, Action<CanvasDrawingSession, Box> draw)
+    {
         var area = view.Inflate(Math.Max(view.Width, view.Height) * 0.5);
         double wDip = area.Width * _zoom, hDip = area.Height * _zoom;
         double maxDip = sender.Device.MaximumBitmapSizeInPixels / Math.Max(1, sender.Dpi / 96) * 0.95;
@@ -356,22 +513,26 @@ public sealed partial class MapCanvas : Grid
             wDip = area.Width * _zoom;
             hDip = area.Height * _zoom;
         }
-        _sceneCache = new CanvasRenderTarget(sender, (float)wDip, (float)hDip);
-        using (var cds = _sceneCache.CreateDrawingSession())
+        var bitmap = new CanvasRenderTarget(sender, (float)wDip, (float)hDip);
+        using (var cds = bitmap.CreateDrawingSession())
         {
             cds.Clear(C(_canvasColor));
+            DrawGrid(cds, new Rect(0, 0, wDip, hDip), new Vec(-area.X * _zoom, -area.Y * _zoom));
             cds.Transform = Matrix3x2.CreateTranslation((float)-area.X, (float)-area.Y) * Matrix3x2.CreateScale((float)_zoom);
-            _scene.Draw(cds, area, _zoom);
+            draw(cds, area);
         }
-        _cacheWorld = area;
-        _cacheZoom = _zoom;
-        _cacheVersion = _sceneVersion;
+        return (bitmap, area);
     }
 
     private void DrawOverlay(CanvasDrawingSession ds)
     {
         float px = (float)(1 / _zoom);
         var accent = C(Accent);
+        DrawSearchHits(ds, px);
+
+        foreach (var fv in _scene.Frames)
+            if (_session.SelectedFrames.Contains(fv.Id))
+                ds.DrawRoundedRectangle(R(fv.Box.Inflate(3 * px)), 12 + 3 * px, 12 + 3 * px, accent, 2.5f * px);
 
         foreach (var id in _session.SelectedLinks)
         {
@@ -399,6 +560,27 @@ public sealed partial class MapCanvas : Grid
                 ds.FillCircle(V2(h), 5.5f * px, Microsoft.UI.Colors.White);
                 ds.DrawCircle(V2(h), 5.5f * px, accent, 2 * px);
             }
+        }
+
+        // uchwyt szerokości (przeciągnij — szerokość zawijania tekstu, dwuklik — automatyczna)
+        if (_widthHandle is { } wh)
+        {
+            var r = new Windows.Foundation.Rect(wh.X - 4 * px, wh.Y - 4 * px, 8 * px, 8 * px);
+            ds.FillRectangle(r, Microsoft.UI.Colors.White);
+            ds.DrawRectangle(r, accent, 1.5f * px);
+            if (_drag == DragMode.ResizeWidth && _session.SingleNode is { Width: { } wrap } rn && _nodes.TryGetValue(rn.Id, out var rv))
+            {
+                // granica zawijania tekstu
+                double x = rv.X - rv.Width / 2 + rv.TextX + wrap;
+                ds.DrawLine(V2(new Vec(x, rv.Y - rv.Height / 2 - 10 * px)), V2(new Vec(x, rv.Y + rv.Height / 2 + 10 * px)), accent, px, PreviewDash);
+            }
+        }
+
+        // linie pomocnicze przyciągania
+        if (_guides.Count > 0)
+        {
+            var guide = C(GuideColor);
+            foreach (var (a, b) in _guides) ds.DrawLine(V2(a), V2(b), guide, px);
         }
 
         // kółko „+”: klik — dziecko, przeciągnięcie — strzałka
@@ -438,7 +620,7 @@ public sealed partial class MapCanvas : Grid
 
     // ================================================================== trafianie myszką
 
-    private enum HitKind { None, Node, Badge, LinkMark, Link, LinkHandle1, LinkHandle2, ConnectHandle }
+    private enum HitKind { None, Node, Badge, LinkMark, Link, LinkHandle1, LinkHandle2, ConnectHandle, WidthHandle, Frame }
 
     private readonly record struct Hit(HitKind Kind, string? Id = null);
 
@@ -447,6 +629,8 @@ public sealed partial class MapCanvas : Grid
         double px = 1 / _zoom;
         if (_connectHandle is { } ch && Vec.Distance(w, ch) <= 11 * px && _session.SingleNode is { } sn)
             return new Hit(HitKind.ConnectHandle, sn.Id);
+        if (_widthHandle is { } wh && Math.Abs(w.X - wh.X) <= 7 * px && Math.Abs(w.Y - wh.Y) <= 7 * px && _session.SingleNode is { } wn)
+            return new Hit(HitKind.WidthHandle, wn.Id);
 
         if (_session.SelectedLinks.Count == 1 && _session.SelectedNodes.Count == 0
             && _links.TryGetValue(_session.SelectedLinks.First(), out var sl) && sl.Route is { } sp)
@@ -465,10 +649,16 @@ public sealed partial class MapCanvas : Grid
             if (v.HitTest(w)) return new Hit(HitKind.Node, v.Id);
         }
 
+        // nagłówek ramki wygrywa ze strzałkami, które przez niego przechodzą (za niego chwyta się ramkę)
+        for (int i = _scene.Frames.Count - 1; i >= 0; i--)
+            if (_scene.Frames[i].Header.Contains(w)) return new Hit(HitKind.Frame, _scene.Frames[i].Id);
+
         LinkView? best = null;
         foreach (var lv in _links.Values)
             if (lv.HitTest(w, Math.Max(6 * px, (lv.Style?.Width ?? 2) / 2 + 3 * px))) best = lv;
         if (best is not null) return new Hit(HitKind.Link, best.Id);
+        // ramki łapie się za nagłówek albo krawędź — wnętrze to zwykłe płótno (przesuwanie, zaznaczanie)
+        if (_scene.FrameAt(w, 6 * px) is { } fv) return new Hit(HitKind.Frame, fv.Id);
         return new Hit(HitKind.None);
     }
 

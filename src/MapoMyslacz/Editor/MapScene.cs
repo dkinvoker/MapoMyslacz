@@ -50,6 +50,7 @@ internal sealed class NodeView
 internal sealed class LinkView
 {
     public required string Id;
+    public string From = "", To = "";
     public LinkPath? Route;
     public ResolvedLinkStyle? Style;
     public CanvasGeometry? Geometry;
@@ -72,6 +73,26 @@ internal sealed class LinkView
             if (GeometryMath.DistanceToSegment(world, Polyline[i - 1], Polyline[i]) <= tolerance) return true;
         return false;
     }
+}
+
+/// <summary>Ramka wokół grupy kafelków: prostokąt z wszystkich jej kafelków (z gałęziami) i nagłówek z nazwą.</summary>
+internal sealed class FrameView
+{
+    public required string Id;
+
+    /// <summary>Widoczne kafelki objęte ramką (z gałęziami) — od nich zależy prostokąt.</summary>
+    public string[] Members = [];
+    public Box Box;
+
+    /// <summary>Pasek u góry ramki — za niego się ją chwyta (wnętrze ramki to zwykłe płótno).</summary>
+    public Box Header;
+    public Box Chip;
+    public Rgba Color;
+    public CanvasTextLayout? Title;
+    public Rect TitleBounds;
+
+    public bool HitTest(Vec w, double tolerance) =>
+        Header.Contains(w) || (Box.Inflate(tolerance).Contains(w) && !Box.Inflate(-tolerance).Contains(w));
 }
 
 /// <summary>Gałąź drzewa (od rodzica do dziecka).</summary>
@@ -133,7 +154,10 @@ internal sealed class MapScene : IDisposable
     public readonly List<NodeView> NodeOrder = [];
     public readonly Dictionary<string, LinkView> Links = [];
     public readonly List<BranchView> Branches = [];
+    public readonly List<FrameView> Frames = [];
     public Rgba Canvas = Styles.CanvasBackground;
+
+    public const double FramePadding = 16, FrameHeader = 30, FrameTitleSize = 13;
 
     private readonly Dictionary<string, CanvasTextLayout> _textCache = [];
     private readonly HashSet<string> _usedText = [];
@@ -206,6 +230,25 @@ internal sealed class MapScene : IDisposable
             Links[id].Head?.Dispose();
             Links[id].Tail?.Dispose();
             Links.Remove(id);
+        }
+
+        Frames.Clear();
+        foreach (var f in map.Frames ?? [])
+        {
+            var members = MapOps.FrameContent(idx, f).Where(Nodes.ContainsKey).ToArray();
+            if (members.Length == 0) continue;
+            var fv = new FrameView { Id = f.Id, Members = members, Color = Styles.FrameColor(f) };
+            if (!string.IsNullOrWhiteSpace(f.Title))
+            {
+                var key = $"F\u0001{f.Title}";
+                _usedText.Add(key);
+                if (!_textCache.TryGetValue(key, out var layout))
+                    _textCache[key] = layout = new CanvasTextLayout(Device, f.Title.Replace('\n', ' '), Format(FrameTitleSize, true, false, TextAlign.Left), 2000, 100);
+                fv.Title = layout;
+                fv.TitleBounds = layout.LayoutBounds;
+            }
+            LayoutFrame(fv);
+            Frames.Add(fv);
         }
 
         // nieużywane układy tekstu (zmieniony tekst, usunięte kafelki) — zwalniamy
@@ -297,6 +340,33 @@ internal sealed class MapScene : IDisposable
         }
     }
 
+    /// <summary>Prostokąt ramki z jej kafelków + margines i pasek nagłówka u góry.</summary>
+    private void LayoutFrame(FrameView fv)
+    {
+        Box? union = null;
+        foreach (var id in fv.Members)
+        {
+            if (!Nodes.TryGetValue(id, out var v)) continue;
+            var b = v.BadgeBounds is { } badge ? Box.Union(v.Bounds, badge) : v.Bounds;
+            union = union is { } u ? Box.Union(u, b) : b;
+        }
+        if (union is not { } content) return;
+        var box = content.Inflate(FramePadding);
+        box = new Box(box.X, box.Y - (FrameHeader - FramePadding + 4), box.Width, box.Height + (FrameHeader - FramePadding + 4));
+        double chipW = fv.Title is null ? 0 : Math.Ceiling(fv.TitleBounds.Width) + 20;
+        if (chipW + 16 > box.Width) box = box with { Width = chipW + 16 };
+        fv.Box = box;
+        fv.Header = new Box(box.X, box.Y, box.Width, FrameHeader);
+        fv.Chip = new Box(box.X + 8, box.Y + 6, chipW, FrameHeader - 10);
+    }
+
+    public FrameView? FrameAt(Vec w, double tolerance)
+    {
+        for (int i = Frames.Count - 1; i >= 0; i--)
+            if (Frames[i].HitTest(w, tolerance)) return Frames[i];
+        return null;
+    }
+
     public static int ChildrenSide(MapIndex idx, Node n)
     {
         var kids = idx.ChildrenOf(n.Id);
@@ -317,6 +387,8 @@ internal sealed class MapScene : IDisposable
             if (moved.Contains(b.ChildId) || moved.Contains(b.ParentId)) SetBranchCurve(b, Nodes[b.ParentId], Nodes[b.ChildId]);
         foreach (var l in map.Links)
             if ((moved.Contains(l.From) || moved.Contains(l.To)) && Links.TryGetValue(l.Id, out var lv)) UpdateLink(l, lv);
+        foreach (var fv in Frames)
+            if (fv.Members.Any(moved.Contains)) LayoutFrame(fv);
     }
 
     private static void SetBranchCurve(BranchView b, NodeView parent, NodeView child)
@@ -334,6 +406,8 @@ internal sealed class MapScene : IDisposable
     {
         var s = Styles.Resolve(l.Style);
         lv.Style = s;
+        lv.From = l.From;
+        lv.To = l.To;
         var path = LinkRouting.Route(l, s.Curve, Nodes[l.From].Outline, Nodes[l.To].Outline);
         lv.Route = path;
 
@@ -478,13 +552,25 @@ internal sealed class MapScene : IDisposable
         return CanvasGeometry.CreatePath(pb);
     }
 
-    /// <summary>Rysuje całą mapę (to, co przecina <paramref name="visible"/>). <paramref name="zoom"/> decyduje o szczegółach.</summary>
-    public void Draw(CanvasDrawingSession ds, Box visible, double zoom)
+    /// <summary>
+    /// Rysuje mapę (to, co przecina <paramref name="visible"/>). <paramref name="zoom"/> decyduje o szczegółach.
+    /// <paramref name="only"/> — tylko te kafelki (i linie między nimi), np. gałąź w trybie fokusu.
+    /// <paramref name="moving"/> — id przeciąganych kafelków (albo wyginanej strzałki): <paramref name="movingPart"/> = false
+    /// rysuje wszystko poza nimi (i liniami/ramkami, które się z nimi ruszają), true — tylko to, co się rusza.
+    /// </summary>
+    public void Draw(CanvasDrawingSession ds, Box visible, double zoom, IReadOnlySet<string>? only = null,
+        IReadOnlySet<string>? moving = null, bool movingPart = false)
     {
         var sw = Profiler is null ? null : System.Diagnostics.Stopwatch.StartNew();
         int nb = 0, nl = 0, nn = 0;
+        bool Part(bool moves) => moving is null || moves == movingPart;
+        if (only is null)
+            foreach (var fv in Frames)
+                if (fv.Box.Intersects(visible) && (moving is null || Part(fv.Members.Any(moving.Contains)))) DrawFrame(ds, fv, zoom);
         foreach (var b in Branches)
-            if (b.Geometry is not null && b.Bounds.Inflate(b.Width).Intersects(visible))
+            if (b.Geometry is not null && b.Bounds.Inflate(b.Width).Intersects(visible)
+                && (only is null || (only.Contains(b.ChildId) && only.Contains(b.ParentId)))
+                && (moving is null || Part(moving.Contains(b.ChildId) || moving.Contains(b.ParentId))))
             {
                 ds.DrawCachedGeometry(b.Stroke.Get(b.Geometry, (float)b.Width, Round, zoom), C(b.Color));
                 nb++;
@@ -492,7 +578,9 @@ internal sealed class MapScene : IDisposable
         double tb = sw?.Elapsed.TotalMilliseconds ?? 0;
 
         foreach (var lv in Links.Values)
-            if (lv.Style is not null && lv.PaintBounds.Inflate(20).Intersects(visible))
+            if (lv.Style is not null && lv.PaintBounds.Inflate(20).Intersects(visible)
+                && (only is null || (only.Contains(lv.From) && only.Contains(lv.To)))
+                && (moving is null || Part(moving.Contains(lv.Id) || moving.Contains(lv.From) || moving.Contains(lv.To))))
             {
                 DrawLink(ds, lv, zoom);
                 nl++;
@@ -500,7 +588,7 @@ internal sealed class MapScene : IDisposable
         double tl = sw?.Elapsed.TotalMilliseconds ?? 0;
 
         foreach (var v in NodeOrder)
-            if (v.PaintBounds.Intersects(visible))
+            if (v.PaintBounds.Intersects(visible) && (only is null || only.Contains(v.Id)) && (moving is null || Part(moving.Contains(v.Id))))
             {
                 DrawNode(ds, v, zoom);
                 nn++;
@@ -511,6 +599,41 @@ internal sealed class MapScene : IDisposable
 
     /// <summary>Pomiar czasu rysowania (włączany zmienną MAPOMYSLACZ_TRACE).</summary>
     public static Action<string>? Profiler;
+
+    /// <summary>
+    /// Uproszczony rysunek do minimapy: kafelki jako prostokąty w ich kolorach, gałęzie i strzałki jako cienkie linie.
+    /// Bez tekstu i bez pamięci obrysów (inna skala niż na płótnie rozregulowałaby ich pamięć).
+    /// </summary>
+    public void DrawMinimap(CanvasDrawingSession ds, double scale)
+    {
+        float px = (float)(1 / scale);
+        foreach (var fv in Frames) ds.FillRectangle(R(fv.Box), C(fv.Color.WithAlpha(50)));
+        Span<Vec> pts = stackalloc Vec[7];
+        foreach (var b in Branches)
+        {
+            for (int i = 0; i < pts.Length; i++) pts[i] = b.Curve.PointAt(i / 6.0);
+            var color = C(b.Color);
+            for (int i = 1; i < pts.Length; i++) ds.DrawLine(V2(pts[i - 1]), V2(pts[i]), color, 1.3f * px);
+        }
+        foreach (var l in Links.Values)
+        {
+            if (l.Style is null || l.Polyline.Length < 2) continue;
+            var color = C(l.Style.Color.WithAlpha((byte)(l.Style.Color.A * 0.7)));
+            int step = Math.Max(1, l.Polyline.Length / 6);
+            for (int i = step; i < l.Polyline.Length + step - 1; i += step)
+                ds.DrawLine(V2(l.Polyline[i - step]), V2(l.Polyline[Math.Min(i, l.Polyline.Length - 1)]), color, px);
+        }
+        foreach (var v in NodeOrder)
+        {
+            var s = v.Style;
+            var b = v.Bounds;
+            double minSide = 2 * px;
+            if (b.Width < minSide || b.Height < minSide) b = Box.FromCenter(v.X, v.Y, Math.Max(b.Width, minSide), Math.Max(b.Height, minSide));
+            if (s.Fill.A > 40) ds.FillRectangle(R(b), C(s.Fill));
+            else if (s.BorderWidth > 0) ds.DrawRectangle(R(b), C(s.Border), 1.5f * px);
+            else ds.FillRectangle(R(Box.FromCenter(v.X, v.Y, b.Width, Math.Max(s.FontSize * 0.6, minSide))), C(s.TextColor.WithAlpha(150)));
+        }
+    }
 
     /// <summary>Ile elementów (gałęzi, strzałek, kafelków) przecina obszar — bez rysowania, do wyboru sposobu rysowania.</summary>
     public int CountVisible(Box visible, int stopAt)
@@ -553,6 +676,22 @@ internal sealed class MapScene : IDisposable
             var b = lv.LabelLayoutBounds;
             ds.DrawTextLayout(label, (float)(lb.Center.X - b.Width / 2 - b.X), (float)(lb.Center.Y - b.Height / 2 - b.Y), text);
         }
+    }
+
+    private void DrawFrame(CanvasDrawingSession ds, FrameView fv, double zoom)
+    {
+        bool dark = Canvas.PrefersLightText;
+        var r = R(fv.Box);
+        ds.FillRoundedRectangle(r, 12, 12, C(fv.Color.WithAlpha(dark ? (byte)34 : (byte)22)));
+        var (style, color) = Stroked(LinePattern.Dashed, 1.5, fv.Color.WithAlpha(dark ? (byte)190 : (byte)160), zoom);
+        ds.DrawRoundedRectangle(R(fv.Box.Inflate(-0.75)), 11.5f, 11.5f, color, 1.5f, style);
+        if (fv.Title is not { } title || fv.Chip.Width <= 0) return;
+        float radius = (float)fv.Chip.Height / 2;
+        ds.FillRoundedRectangle(R(fv.Chip), radius, radius, C(fv.Color));
+        if (FrameTitleSize * zoom < 2.5) return;
+        var ink = fv.Color.PrefersLightText ? Rgba.White : Styles.DarkText;
+        var tb = fv.TitleBounds;
+        ds.DrawTextLayout(title, (float)(fv.Chip.X + 10 - tb.X), (float)(fv.Chip.Y + (fv.Chip.Height - tb.Height) / 2 - tb.Y), C(ink));
     }
 
     public static Vec[] Arrow(Vec tip, Vec dir, double len, double half)
@@ -748,6 +887,7 @@ internal sealed class MapScene : IDisposable
         IEnumerable<Box> boxes = NodeOrder.Select(v => v.Bounds);
         boxes = boxes.Concat(Links.Values.Select(l => l.PaintBounds));
         boxes = boxes.Concat(NodeOrder.Where(v => v.BadgeBounds is not null).Select(v => v.BadgeBounds!.Value));
+        boxes = boxes.Concat(Frames.Select(f => f.Box));
         return Box.Union(boxes);
     }
 
@@ -779,5 +919,6 @@ internal sealed class MapScene : IDisposable
         Links.Clear();
         Branches.Clear();
         NodeOrder.Clear();
+        Frames.Clear();
     }
 }

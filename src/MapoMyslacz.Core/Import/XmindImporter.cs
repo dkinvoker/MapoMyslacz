@@ -126,16 +126,21 @@ public static partial class XmindImporter
 
         if (!topic.TryGetProperty("children", out var children) || children.ValueKind != JsonValueKind.Object) return;
 
+        var childIds = new List<string>();
         if (children.TryGetProperty("attached", out var attached) && attached.ValueKind == JsonValueKind.Array)
         {
             bool anyWithoutPosition = false;
             foreach (var child in attached.EnumerateArray())
             {
                 anyWithoutPosition |= !child.TryGetProperty("position", out _);
+                int added = ctx.Map.Nodes.Count; // AddTopic dodaje najpierw sam temat, potem jego gałąź
                 AddTopic(ctx, child, node.Id, isRoot ? "mainTopic" : "subTopic", new Vec(node.X, node.Y));
+                childIds.Add(ctx.Map.Nodes[added].Id);
             }
             if (anyWithoutPosition) ctx.NeedLayout.Add(node.Id);
         }
+        if (topic.TryGetProperty("boundaries", out var boundaries) && boundaries.ValueKind == JsonValueKind.Array)
+            foreach (var b in boundaries.EnumerateArray()) AddBoundary(ctx, b, node.Id, childIds);
         if (children.TryGetProperty("detached", out var detached) && detached.ValueKind == JsonValueKind.Array)
         {
             // tematy swobodne — pozycja w XMind jest względem środka tematu głównego, czyli u nas (0, 0)
@@ -143,6 +148,32 @@ public static partial class XmindImporter
             foreach (var child in detached.EnumerateArray())
                 AddTopic(ctx, child, null, "floatingTopic", new Vec(node.X + 250, node.Y + 60 * i++));
         }
+    }
+
+    /// <summary>
+    /// Granica XMind („boundary”) → ramka. Zakres „(0,2)” to numery dzieci tematu (od zera, włącznie),
+    /// „master” — sam temat z całą gałęzią.
+    /// </summary>
+    private static void AddBoundary(Ctx ctx, JsonElement boundary, string topicId, List<string> childIds)
+    {
+        var range = Str(boundary, "range")?.Trim() ?? "";
+        List<string> nodes;
+        if (range.Equals("master", StringComparison.OrdinalIgnoreCase)) nodes = [topicId];
+        else
+        {
+            var parts = range.Trim('(', ')').Split(',', StringSplitOptions.TrimEntries);
+            if (parts.Length != 2 || !int.TryParse(parts[0], out int a) || !int.TryParse(parts[1], out int b)) return;
+            a = Math.Max(0, a);
+            b = Math.Min(childIds.Count - 1, b);
+            if (a > b) return;
+            nodes = childIds.GetRange(a, b - a + 1);
+        }
+        var title = Str(boundary, "title") is { } t ? Clean(t) : null;
+        var frame = new Frame { Title = string.IsNullOrEmpty(title) ? null : title, Nodes = nodes };
+        if (boundary.TryGetProperty("style", out var style) && style.TryGetProperty("properties", out var props)
+            && Color(Props(props).GetValueOrDefault("svg:fill")) is { } c)
+            frame.Color = c.WithAlpha(255).ToString();
+        (ctx.Map.Frames ??= []).Add(frame);
     }
 
     private static string TitleOf(JsonElement topic)
@@ -314,6 +345,13 @@ public static partial class XmindImporter
         if (begin is not null && !begin.EndsWith(".none", StringComparison.OrdinalIgnoreCase)) s.ArrowStart = true;
         if (end is not null && end.EndsWith(".none", StringComparison.OrdinalIgnoreCase)) s.ArrowEnd = false;
         if (shapeClass.EndsWith(".straight", StringComparison.OrdinalIgnoreCase)) s.Curve = LinkCurve.Straight;
+        if (shapeClass.EndsWith(".angled", StringComparison.OrdinalIgnoreCase) || shapeClass.EndsWith(".elbow", StringComparison.OrdinalIgnoreCase))
+        {
+            // łamana — punkty kontrolne krzywej XMind nic tu nie znaczą
+            s.Curve = LinkCurve.Elbow;
+            link.C1 = link.C2 = null;
+            link.Via = null;
+        }
         if (Length(p.GetValueOrDefault("fo:font-size")) is { } fs && Math.Abs(fs - Styles.DefaultLinkFontSize) > 0.1) s.FontSize = fs;
         link.Style = s.IsEmpty ? null : s;
         ctx.Map.Links.Add(link);

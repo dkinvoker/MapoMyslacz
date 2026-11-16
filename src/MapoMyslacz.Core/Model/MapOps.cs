@@ -5,6 +5,9 @@ public delegate Vec NodeSizer(Node node);
 
 public enum Direction { Left, Right, Up, Down }
 
+/// <summary>Do czego wyrównać zaznaczone kafelki.</summary>
+public enum AlignMode { Left, CenterX, Right, Top, CenterY, Bottom }
+
 /// <summary>Kawałek mapy (kafelki + strzałki między nimi) — do schowka, duplikowania i wklejania konspektu.</summary>
 public sealed class MapFragment
 {
@@ -14,6 +17,9 @@ public sealed class MapFragment
     public string? Format { get; set; }
     public List<Node> Nodes { get; set; } = [];
     public List<Link> Links { get; set; } = [];
+
+    /// <summary>Ramki, których wszystkie kafelki są w kawałku.</summary>
+    public List<Frame>? Frames { get; set; }
 }
 
 /// <summary>Operacje edycyjne na mapie. Bez interfejsu — testowane jednostkowo.</summary>
@@ -100,8 +106,11 @@ public static class MapOps
         return node;
     }
 
-    /// <summary>Usuwa kafelki razem z ich potomkami oraz wskazane strzałki (i strzałki prowadzące do usuniętych).</summary>
-    public static int Delete(MindMap map, IEnumerable<string> nodeIds, IEnumerable<string>? linkIds = null)
+    /// <summary>
+    /// Usuwa kafelki razem z ich potomkami, wskazane strzałki (i strzałki prowadzące do usuniętych) oraz wskazane
+    /// ramki (same ramki — ich kafelki zostają). Ramki, w których nie został żaden kafelek, też znikają.
+    /// </summary>
+    public static int Delete(MindMap map, IEnumerable<string> nodeIds, IEnumerable<string>? linkIds = null, IEnumerable<string>? frameIds = null)
     {
         var index = new MapIndex(map);
         var remove = new HashSet<string>();
@@ -114,8 +123,50 @@ public static class MapOps
         var removeLinks = new HashSet<string>(linkIds ?? []);
         int count = map.Nodes.RemoveAll(n => remove.Contains(n.Id));
         count += map.Links.RemoveAll(l => removeLinks.Contains(l.Id) || remove.Contains(l.From) || remove.Contains(l.To));
+        if (map.Frames is { } frames)
+        {
+            var removeFrames = new HashSet<string>(frameIds ?? []);
+            foreach (var f in frames) f.Nodes.RemoveAll(remove.Contains);
+            count += frames.RemoveAll(f => removeFrames.Contains(f.Id) || f.Nodes.Count == 0);
+            if (frames.Count == 0) map.Frames = null;
+        }
         return count;
     }
+
+    // ------------------------------------------------------------------ ramki
+
+    /// <summary>Nowa ramka wokół kafelków (pomija nieistniejące; null, gdy nie ma żadnego).</summary>
+    public static Frame? AddFrame(MindMap map, IEnumerable<string> nodeIds, string? title = "Grupa")
+    {
+        var index = new MapIndex(map);
+        var ids = nodeIds.Distinct().Where(index.Contains).ToList();
+        if (ids.Count == 0) return null;
+        var frame = new Frame { Title = title, Nodes = ids };
+        (map.Frames ??= []).Add(frame);
+        return frame;
+    }
+
+    /// <summary>Dokłada kafelki do ramki (bez powtórzeń).</summary>
+    public static void AddToFrame(Frame frame, IEnumerable<string> nodeIds)
+    {
+        foreach (var id in nodeIds)
+            if (!frame.Nodes.Contains(id)) frame.Nodes.Add(id);
+    }
+
+    /// <summary>Wyjmuje kafelki z ramek; ramka bez kafelków znika.</summary>
+    public static void RemoveFromFrames(MindMap map, IEnumerable<string> nodeIds)
+    {
+        if (map.Frames is not { } frames) return;
+        var ids = nodeIds.ToHashSet();
+        foreach (var f in frames) f.Nodes.RemoveAll(ids.Contains);
+        frames.RemoveAll(f => f.Nodes.Count == 0);
+        if (frames.Count == 0) map.Frames = null;
+    }
+
+    /// <summary>Kafelki należące do ramki razem z ich potomkami (to, co ramka obejmuje).</summary>
+    public static HashSet<string> FrameContent(MapIndex index, Frame frame) => MovingSet(index, frame.Nodes, withDescendants: true);
+
+    public static Frame CloneFrame(Frame f) => new() { Id = f.Id, Title = f.Title, Nodes = f.Nodes.ToList(), Color = f.Color };
 
     /// <summary>Kafelki, które poruszą się razem z zaznaczeniem (opcjonalnie z całymi gałęziami).</summary>
     public static HashSet<string> MovingSet(MapIndex index, IEnumerable<string> ids, bool withDescendants)
@@ -169,7 +220,8 @@ public static class MapOps
     public static void Reverse(Link link)
     {
         (link.From, link.To) = (link.To, link.From);
-        (link.C1, link.C2) = (link.C2, link.C1);
+        // łamana: C1 to przesunięcie środkowego odcinka w układzie mapy — zostaje bez zmian
+        if (link.Style?.Curve != LinkCurve.Elbow) (link.C1, link.C2) = (link.C2, link.C1);
         link.Via?.Reverse();
         if (link.Style is { } s) (s.ArrowStart, s.ArrowEnd) = (s.ArrowEnd, s.ArrowStart);
     }
@@ -186,6 +238,8 @@ public static class MapOps
             if (ids.Contains(n.Id)) frag.Nodes.Add(CloneNode(n, ids.Contains(n.Parent ?? "") ? n.Parent : null));
         foreach (var l in map.Links)
             if (ids.Contains(l.From) && ids.Contains(l.To)) frag.Links.Add(CloneLink(l));
+        foreach (var f in map.Frames ?? [])
+            if (f.Nodes.Count > 0 && f.Nodes.All(ids.Contains)) (frag.Frames ??= []).Add(CloneFrame(f));
         return frag;
     }
 
@@ -223,6 +277,15 @@ public static class MapOps
             copy.To = t;
             if (copy.Via is { } via) copy.Via = via.Select(p => p + shift).ToList();
             map.Links.Add(copy);
+        }
+        foreach (var f in fragment.Frames ?? [])
+        {
+            var nodes = f.Nodes.Where(map2.ContainsKey).Select(id => map2[id]).ToList();
+            if (nodes.Count == 0) continue;
+            var copy = CloneFrame(f);
+            copy.Id = Ids.New();
+            copy.Nodes = nodes;
+            (map.Frames ??= []).Add(copy);
         }
         return added;
     }
@@ -263,6 +326,90 @@ public static class MapOps
         var s = link.Style ?? new LinkStyle();
         change(s);
         link.Style = s.IsEmpty ? null : s;
+    }
+
+    // ------------------------------------------------------------------ wyrównywanie
+
+    /// <summary>
+    /// Wyrównuje kafelki do krawędzi albo środka całego zaznaczenia. Gałęzie jadą razem z kafelkami (jak przy
+    /// przeciąganiu). Zwraca false, gdy nic się nie zmieniło.
+    /// </summary>
+    public static bool Align(MindMap map, IEnumerable<string> ids, AlignMode mode, NodeSizer size)
+    {
+        var idx = new MapIndex(map);
+        var nodes = ids.Distinct().Select(idx.Get).OfType<Node>().ToList();
+        if (nodes.Count < 2) return false;
+        var boxes = nodes.ToDictionary(n => n.Id, n => BoxOf(n, size));
+        var all = Box.Union(boxes.Values)!.Value;
+        var targets = new Dictionary<string, Vec>();
+        foreach (var n in nodes)
+        {
+            var b = boxes[n.Id];
+            targets[n.Id] = mode switch
+            {
+                AlignMode.Left => new Vec(all.Left + b.Width / 2, n.Y),
+                AlignMode.CenterX => new Vec(all.Center.X, n.Y),
+                AlignMode.Right => new Vec(all.Right - b.Width / 2, n.Y),
+                AlignMode.Top => new Vec(n.X, all.Top + b.Height / 2),
+                AlignMode.CenterY => new Vec(n.X, all.Center.Y),
+                _ => new Vec(n.X, all.Bottom - b.Height / 2),
+            };
+        }
+        return MoveTo(idx, targets);
+    }
+
+    /// <summary>Rozkłada kafelki równo (jednakowe odstępy między nimi); skrajne zostają na miejscu.</summary>
+    public static bool Distribute(MindMap map, IEnumerable<string> ids, bool horizontal, NodeSizer size)
+    {
+        var idx = new MapIndex(map);
+        var nodes = ids.Distinct().Select(idx.Get).OfType<Node>().ToList();
+        if (nodes.Count < 3) return false;
+        var boxes = nodes.ToDictionary(n => n.Id, n => BoxOf(n, size));
+        var sorted = nodes.OrderBy(n => horizontal ? n.X : n.Y).ToList();
+        var first = boxes[sorted[0].Id];
+        var last = boxes[sorted[^1].Id];
+        double span = horizontal ? last.Right - first.Left : last.Bottom - first.Top;
+        double sum = sorted.Sum(n => horizontal ? boxes[n.Id].Width : boxes[n.Id].Height);
+        double gap = (span - sum) / (sorted.Count - 1);
+        double pos = horizontal ? first.Left : first.Top;
+        var targets = new Dictionary<string, Vec>();
+        foreach (var n in sorted)
+        {
+            var b = boxes[n.Id];
+            targets[n.Id] = horizontal ? new Vec(pos + b.Width / 2, n.Y) : new Vec(n.X, pos + b.Height / 2);
+            pos += (horizontal ? b.Width : b.Height) + gap;
+        }
+        return MoveTo(idx, targets);
+    }
+
+    private static Box BoxOf(Node n, NodeSizer size)
+    {
+        var s = size(n);
+        return Box.FromCenter(n.X, n.Y, s.X, s.Y);
+    }
+
+    /// <summary>
+    /// Ustawia kafelki w docelowych miejscach, przesuwając ich gałęzie. Najpierw przodkowie — wtedy zaznaczony
+    /// potomek, którego przesunął przodek, i tak trafia dokładnie tam, gdzie powinien.
+    /// </summary>
+    private static bool MoveTo(MapIndex idx, Dictionary<string, Vec> targets)
+    {
+        bool changed = false;
+        foreach (var id in targets.Keys.OrderBy(id => idx.Depth(idx.Get(id)!)))
+        {
+            var n = idx.Get(id)!;
+            var t = targets[id];
+            var d = new Vec(Math.Round(t.X - n.X), Math.Round(t.Y - n.Y));
+            if (d == Vec.Zero) continue;
+            changed = true;
+            foreach (var m in MovingSet(idx, [id], withDescendants: true))
+            {
+                var node = idx.Get(m)!;
+                node.X += d.X;
+                node.Y += d.Y;
+            }
+        }
+        return changed;
     }
 
     // ------------------------------------------------------------------ nawigacja
@@ -354,6 +501,26 @@ public static class MapOps
                 fixes++;
             }
             if (l.Via is { Count: 0 }) l.Via = null;
+        }
+        if (map.Frames is { } frames)
+        {
+            frames.RemoveAll(f => f is null);
+            var frameIds = new HashSet<string>();
+            foreach (var f in frames)
+            {
+                f.Nodes ??= [];
+                int before = f.Nodes.Count;
+                f.Nodes = f.Nodes.Where(seen.Contains).Distinct().ToList();
+                if (f.Nodes.Count != before) fixes++;
+                if (string.IsNullOrEmpty(f.Id) || !frameIds.Add(f.Id))
+                {
+                    f.Id = Ids.New();
+                    frameIds.Add(f.Id);
+                    fixes++;
+                }
+            }
+            fixes += frames.RemoveAll(f => f.Nodes.Count == 0);
+            if (frames.Count == 0) map.Frames = null;
         }
         return fixes;
     }

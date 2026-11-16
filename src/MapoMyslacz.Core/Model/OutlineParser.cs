@@ -33,10 +33,16 @@ public static partial class OutlineParser
             stack.Add((indent, node));
         }
 
-        // pozycje: drzewa obok siebie w pionie, każde uporządkowane w prawo
-        var map = new MindMap { Nodes = frag.Nodes };
+        LayoutRoots(frag.Nodes);
+        return frag;
+    }
+
+    /// <summary>Pozycje: drzewa jedno pod drugim, każde uporządkowane w prawo.</summary>
+    public static void LayoutRoots(List<Node> nodes)
+    {
+        var map = new MindMap { Nodes = nodes };
         double y = 0;
-        foreach (var root in frag.Nodes.Where(n => n.Parent is null).ToList())
+        foreach (var root in nodes.Where(n => n.Parent is null).ToList())
         {
             root.X = 0;
             root.Y = y;
@@ -50,6 +56,5 @@ public static partial class OutlineParser
             foreach (var n in all) n.Y += shift;
             y = bottom + shift + MapOps.VerticalGap * 2;
         }
-        return frag;
     }
 }

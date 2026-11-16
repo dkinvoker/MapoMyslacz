@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.System;
+using MapFrame = MapoMyslacz.Core.Model.Frame;
 
 namespace MapoMyslacz;
 
@@ -23,14 +24,78 @@ public sealed partial class MainWindow
 
     private void RebuildProperties()
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            RebuildPropertiesCore();
+        }
+        finally
+        {
+            Editor.MapCanvas.Trace($"panel {sw.Elapsed.TotalMilliseconds:0.0} ms ({PropsHost.Children.Count} elementów)");
+        }
+    }
+
+    private void RebuildPropertiesCore()
+    {
         _refreshers.Clear();
         PropsHost.Children.Clear();
         var nodes = _session.SelectedNodes.Count;
         var links = _session.SelectedLinks.Count;
+        var frames = _session.SelectedFrames.Count;
         if (nodes > 0) BuildNodePanel(nodes);
         if (links > 0) BuildLinkPanel(links, separated: nodes > 0);
-        if (nodes == 0 && links == 0) BuildMapPanel();
+        if (frames > 0) BuildFramePanel(frames, separated: nodes + links > 0);
+        if (nodes == 0 && links == 0 && frames == 0) BuildMapPanel();
         RefreshProperties();
+    }
+
+    private List<MapFrame> SelFrames() => _session.SelectedFrameObjects.ToList();
+
+    private void EditFrames(Action<MapFrame> change)
+    {
+        if (_refreshing) return;
+        Map.CommitEdit();
+        var frames = SelFrames();
+        if (frames.Count > 0) _session.Edit(_ => frames.ForEach(change));
+    }
+
+    private void BuildFramePanel(int count, bool separated)
+    {
+        if (separated) Add(new Rectangle { Height = 1, Fill = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"], Margin = new Thickness(0, 14, 0, 4) });
+        Header(count == 1 ? "Ramka" : $"Ramki ({count})",
+            "Ramka obejmuje swoje kafelki razem z gałęziami i przesuwa się razem z nimi. Chwyć ją za nagłówek, żeby przesunąć całą grupę.");
+
+        if (count == 1)
+        {
+            Section("Nazwa");
+            var title = new TextBox { PlaceholderText = "np. „Wioska”, „Las”, „Zamek”" };
+            BindText(title, () => SelFrames() is [{ } f] ? f.Title : null, t =>
+            {
+                var v = string.IsNullOrWhiteSpace(t) ? null : t.Trim();
+                if (SelFrames() is [{ } f] && f.Title != v) EditFrames(x => x.Title = v);
+            });
+            title.KeyDown += (_, e) => { if (e.Key == VirtualKey.Enter) Map.Focus(FocusState.Programmatic); };
+            Add(title);
+        }
+
+        Section("Kolor");
+        Add(Swatches(Styles.FrameColors.Skip(1).Select(c => c.Color), () => SelFrames().FirstOrDefault()?.Color,
+            c => EditFrames(f => f.Color = c), autoTip: $"Domyślny ({Styles.FrameColors[0].Name.ToLowerInvariant()})", allowCustom: true));
+
+        var info = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.7, Margin = new Thickness(0, 10, 0, 0) };
+        _refreshers.Add(() =>
+        {
+            var idx = _session.Index;
+            int n = SelFrames().SelectMany(f => MapOps.FrameContent(idx, f)).Distinct().Count();
+            info.Text = $"Obejmuje {n} {Plural(n, "kafelek", "kafelki", "kafelków")}. Kafelki dodasz z menu kafelka (prawy przycisk → „Dodaj do ramki”).";
+        });
+        Add(info);
+
+        Section("Polecenia");
+        var actions = new VariableSizedWrapGrid { Orientation = Orientation.Horizontal, ItemWidth = 128, ItemHeight = 38, MaximumRowsOrColumns = 2 };
+        actions.Children.Add(ActionButton("", "Zaznacz", () => _session.Select(SelFrames().SelectMany(f => f.Nodes))));
+        actions.Children.Add(ActionButton("", "Usuń ramkę", Map.DeleteSelection));
+        Add(actions);
     }
 
     private void RefreshProperties()
@@ -94,6 +159,28 @@ public sealed partial class MainWindow
             c => _session.Edit(m => m.Background = c),
             autoTip: "Automatyczne (jasne albo ciemne jak motyw Windows)", allowCustom: true));
 
+        if (_backlinks.Count > 0 && _backlinksFor == _session.FilePath)
+        {
+            Section($"Linki do tej mapy ({_backlinks.Count})");
+            Add(new TextBlock { Text = "Kafelki innych map z tego folderu, które prowadzą tutaj:", TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.7 });
+            foreach (var b in _backlinks.Take(15))
+            {
+                var link = b;
+                var text = b.NodeText.Replace('\n', ' ').Trim();
+                if (text.Length > 32) text = text[..31] + "…";
+                var button = new HyperlinkButton
+                {
+                    Content = new TextBlock { Text = $"{System.IO.Path.GetFileNameWithoutExtension(b.MapPath)} — „{text}”", TextTrimming = TextTrimming.CharacterEllipsis },
+                    Padding = new Thickness(4, 3, 4, 3),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                };
+                ToolTipService.SetToolTip(button, $"Otwórz mapę {b.MapPath} i pokaż ten kafelek");
+                button.Click += (_, _) => _ = OpenBacklinkAsync(link);
+                Add(button);
+            }
+        }
+
         Section("Wskazówki");
         var tips = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.8, FontSize = 12.5, LineHeight = 20 };
         tips.Text =
@@ -104,6 +191,7 @@ public sealed partial class MainWindow
             "• Przeciągnij zaznaczoną strzałkę, żeby ją wygiąć\n" +
             "• Przeciągnij puste miejsce — przesuwanie, Shift/Ctrl — zaznaczanie\n" +
             "• Wklejony tekst z wcięciami zamienia się w gałęzie\n" +
+            "• Ctrl+F — szukaj, Ctrl+G — ramka wokół zaznaczonych\n" +
             "• F1 — wszystkie skróty";
         Add(tips);
     }
@@ -126,7 +214,7 @@ public sealed partial class MainWindow
 
         Section("Gotowe style");
         var presets = new VariableSizedWrapGrid { Orientation = Orientation.Horizontal, ItemWidth = 128, ItemHeight = 38, MaximumRowsOrColumns = 2 };
-        foreach (var p in Styles.Presets) presets.Children.Add(PresetButton(p));
+        foreach (var p in Map.CustomPresets.Concat(Styles.Presets)) presets.Children.Add(PresetButton(p));
         Add(presets);
 
         BuildMarkersSection();
@@ -278,10 +366,11 @@ public sealed partial class MainWindow
             Add(note);
 
             Section("Link");
-            var link = new TextBox { PlaceholderText = "https://… albo inna mapa (.mapo), plik…" };
+            var link = new TextBox { PlaceholderText = "https://…, inna mapa (.mapo), plik albo kafelek" };
             BindText(link, () => SelNodes() is [{ } n] ? n.Link : null, t =>
             {
-                var v = string.IsNullOrWhiteSpace(t) ? null : t.Trim();
+                // wklejona pełna ścieżka staje się względna, a link do kafelka tej mapy — krótkim „#id”
+                var v = string.IsNullOrWhiteSpace(t) ? null : LinkTargets.Normalize(t, _session.FilePath);
                 if (SelNodes() is [{ } n] && n.Link != v) EditNodes(x => x.Link = v);
             });
             link.KeyDown += (_, e) => { if (e.Key == VirtualKey.Enter) Map.Focus(FocusState.Programmatic); };
@@ -290,17 +379,47 @@ public sealed partial class MainWindow
             var pick = new Button { Content = "Wybierz plik…" };
             ToolTipService.SetToolTip(pick, "Inna mapa (np. następna sesja kampanii) albo dowolny plik — zapisany względem tej mapy");
             pick.Click += (_, _) => _ = PickLinkTargetAsync();
+            var pickNode = new Button { Content = "Kafelek…" };
+            ToolTipService.SetToolTip(pickNode, "Link do innego kafelka tej mapy — kliknij go po naciśnięciu przycisku. Do kafelka w innej mapie: prawy przycisk na nim → „Kopiuj link do kafelka” i wklej tutaj.");
+            pickNode.Click += (_, _) => Map.EnterLinkPickMode();
             var open = new Button { Content = "Otwórz" };
             open.Click += (_, _) => { if (SelNodes() is [{ } n]) _ = OpenLinkAsync(n); };
             _refreshers.Add(() => open.IsEnabled = SelNodes() is [{ Link.Length: > 0 }]);
             linkRow.Children.Add(pick);
+            linkRow.Children.Add(pickNode);
             linkRow.Children.Add(open);
             Add(linkRow);
             Add(new TextBlock
             {
-                Text = "Ctrl+klik na kafelku albo klik w niebieski znaczek otwiera link. Mapa .mapo otwiera się w tym oknie — Alt+← wraca.",
+                Text = "Ctrl+klik na kafelku albo klik w niebieski znaczek otwiera link. Mapa .mapo otwiera się w tym oknie — Alt+← wraca. " +
+                       "Link do kafelka w innej mapie: prawy przycisk na nim → „Kopiuj link do kafelka”, potem wklej tutaj.",
                 TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.7, Margin = new Thickness(0, 2, 0, 0),
             });
+        }
+
+        if (count >= 2)
+        {
+            Section("Wyrównanie");
+            var alignRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+            foreach (var (mode, text, glyph) in Editor.MapCanvas.AlignCommands)
+            {
+                var m = mode;
+                var b = new Button { Content = new FontIcon { Glyph = glyph, FontSize = 14 }, Width = 38, Height = 32, Padding = new Thickness(0) };
+                ToolTipService.SetToolTip(b, text);
+                b.Click += (_, _) => Map.AlignSelection(m);
+                alignRow.Children.Add(b);
+            }
+            Add(alignRow);
+            var distRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(0, 4, 0, 0) };
+            foreach (var (horizontal, text) in new[] { (true, "Rozłóż ↔"), (false, "Rozłóż ↕") })
+            {
+                var h = horizontal;
+                var b = new Button { Content = text, Height = 32, IsEnabled = count >= 3 };
+                ToolTipService.SetToolTip(b, h ? "Równe odstępy w poziomie (skrajne kafelki zostają)" : "Równe odstępy w pionie (skrajne kafelki zostają)");
+                b.Click += (_, _) => Map.DistributeSelection(h);
+                distRow.Children.Add(b);
+            }
+            Add(distRow);
         }
 
         Section("Polecenia");
@@ -370,10 +489,12 @@ public sealed partial class MainWindow
             () => EditLinkStyles(s => s.ArrowEnd = Styles.Resolve(s).ArrowEnd ? false : null)));
         Add(arrows);
         var curve = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(0, 4, 0, 0) };
-        curve.Children.Add(TextToggle("Zakrzywiona", () => Styles.Resolve(SelLinks().FirstOrDefault()?.Style).Curve == LinkCurve.Curved,
-            () => EditLinkStyles(s => s.Curve = null)));
-        curve.Children.Add(TextToggle("Prosta", () => Styles.Resolve(SelLinks().FirstOrDefault()?.Style).Curve == LinkCurve.Straight,
-            () => EditLinkStyles(s => s.Curve = LinkCurve.Straight)));
+        foreach (var (c, name) in new[] { (LinkCurve.Curved, "Łuk"), (LinkCurve.Straight, "Prosta"), (LinkCurve.Elbow, "Łamana") })
+        {
+            var cv = c;
+            curve.Children.Add(TextToggle(name, () => Styles.Resolve(SelLinks().FirstOrDefault()?.Style).Curve == cv,
+                () => EditLinks(l => Editor.MapCanvas.SetCurve(l, cv))));
+        }
         Add(curve);
 
         Section("Rozmiar podpisu");

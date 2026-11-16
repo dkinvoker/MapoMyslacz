@@ -106,12 +106,54 @@ public sealed partial class MapCanvas
 
     public void DeleteSelection()
     {
-        if (_session.SelectedNodes.Count == 0 && _session.SelectedLinks.Count == 0) return;
+        if (_session.SelectionCount == 0) return;
         var nodes = _session.SelectedNodes.ToList();
         var links = _session.SelectedLinks.ToList();
-        _session.Edit(m => MapOps.Delete(m, nodes, links));
+        var frames = _session.SelectedFrames.ToList();
+        _session.Edit(m => MapOps.Delete(m, nodes, links, frames));
         _session.ClearSelection();
     }
+
+    // ================================================================== ramki
+
+    /// <summary>Otacza zaznaczone kafelki ramką i od razu otwiera edycję jej nazwy (Ctrl+G).</summary>
+    public void FrameSelection()
+    {
+        var ids = _session.SelectedNodes.ToList();
+        if (ids.Count == 0)
+        {
+            Notify?.Invoke("Zaznacz kafelki, które ma objąć ramka (np. Shift + przeciągnięcie).");
+            return;
+        }
+        Core.Model.Frame? frame = null;
+        _session.Edit(m => frame = MapOps.AddFrame(m, ids));
+        if (frame is null) return;
+        _session.SelectFrame(frame.Id);
+        BeginFrameTitleEdit(frame.Id, isNew: true);
+    }
+
+    /// <summary>Link do kafelka do schowka — wklejony w pole „Link” innego kafelka (także w innej mapie) prowadzi tutaj.</summary>
+    public void CopyNodeLink(Node node)
+    {
+        try
+        {
+            var dp = new DataPackage();
+            dp.SetText(LinkTargets.ForNode(node.Id, _session.FilePath));
+            Clipboard.SetContent(dp);
+            Clipboard.Flush();
+            Notify?.Invoke(_session.FilePath is null
+                ? "Skopiowano link do kafelka (działa w tej mapie; po zapisaniu mapy zadziała też z innych map)."
+                : "Skopiowano link do kafelka — wklej go w polu „Link” innego kafelka, także w innej mapie.");
+        }
+        catch (Exception ex)
+        {
+            Notify?.Invoke($"Nie udało się skopiować: {ex.Message}");
+        }
+    }
+
+    /// <summary>Kafelki do kopiowania: zaznaczone oraz zawartość zaznaczonych ramek (ramka kopiuje się razem z nimi).</summary>
+    private List<string> CopySet() =>
+        _session.SelectedNodes.Concat(_session.SelectedFrameObjects.SelectMany(f => f.Nodes)).Distinct().ToList();
 
     public void ArrangeSelection()
     {
@@ -136,6 +178,28 @@ public sealed partial class MapCanvas
     {
         if (_session.Edit(m => TreeLayout.ArrangeAll(m, Sizer))) Notify?.Invoke("Uporządkowano gałęzie.");
         else Notify?.Invoke("Wszystkie gałęzie są już uporządkowane.");
+    }
+
+    public void AlignSelection(AlignMode mode)
+    {
+        var ids = _session.SelectedNodes.ToList();
+        if (ids.Count < 2)
+        {
+            Notify?.Invoke("Zaznacz co najmniej dwa kafelki, żeby je wyrównać.");
+            return;
+        }
+        _session.Edit(m => MapOps.Align(m, ids, mode, Sizer));
+    }
+
+    public void DistributeSelection(bool horizontal)
+    {
+        var ids = _session.SelectedNodes.ToList();
+        if (ids.Count < 3)
+        {
+            Notify?.Invoke("Rozkładanie równo wymaga co najmniej trzech kafelków.");
+            return;
+        }
+        _session.Edit(m => MapOps.Distribute(m, ids, horizontal, Sizer));
     }
 
     public void ToggleCollapse()
@@ -222,7 +286,7 @@ public sealed partial class MapCanvas
 
     public async Task CopyAsync(bool cut)
     {
-        var ids = _session.SelectedNodes.ToList();
+        var ids = CopySet();
         if (ids.Count == 0) return;
         var fragment = MapOps.Copy(_session.Map, ids);
         try
@@ -280,7 +344,7 @@ public sealed partial class MapCanvas
 
     public void Duplicate()
     {
-        var ids = _session.SelectedNodes.ToList();
+        var ids = CopySet();
         if (ids.Count == 0) return;
         var fragment = MapOps.Copy(_session.Map, ids);
         List<Node> added = [];
@@ -353,6 +417,7 @@ public sealed partial class MapCanvas
     {
         if (_session.SingleNode is { } n) BeginEdit(n.Id);
         else if (_session.SelectedLinks.Count == 1 && _session.SelectedNodes.Count == 0) BeginLabelEdit(_session.SelectedLinks.First());
+        else if (_session.SingleFrame is { } f) BeginFrameTitleEdit(f.Id);
     }
 
     /// <param name="initialText">Pierwszy wpisany znak (zastępuje tekst) albo null (cały tekst do edycji, zaznaczony).</param>
@@ -600,6 +665,45 @@ public sealed partial class MapCanvas
         }
     }
 
+    /// <summary>Edycja nazwy ramki — pole w miejscu nagłówka (jeden krok cofania).</summary>
+    public void BeginFrameTitleEdit(string frameId, string? initialText = null, bool isNew = false)
+    {
+        if (!isNew) CommitEdit();
+        var frame = _session.FindFrame(frameId);
+        var fv = _scene.Frames.FirstOrDefault(f => f.Id == frameId);
+        if (frame is null || fv is null) return;
+        _session.BeginBatch();
+        _labelFrameId = frameId;
+        var tb = new TextBox
+        {
+            Text = initialText ?? frame.Title ?? "",
+            FontSize = MapScene.FrameTitleSize,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(MapScene.FontFamily),
+            MinWidth = 160,
+            MaxWidth = Math.Max(160, fv.Box.Width - 16),
+            PlaceholderText = "Nazwa ramki",
+            IsTextScaleFactorEnabled = false,
+        };
+        XCanvas.SetLeft(tb, fv.Box.X + 6);
+        XCanvas.SetTop(tb, fv.Box.Y + 1);
+        _labelEditor = tb;
+        _editorFresh = initialText is null;
+        _editorLayer.Children.Add(tb);
+        tb.PreviewKeyDown += OnLabelEditorKeyDown;
+        tb.LostFocus += (_, _) => { if (_labelEditor == tb) CommitLabelEdit(); };
+        tb.Loaded += (_, _) =>
+        {
+            tb.Focus(FocusState.Programmatic);
+            if (_editorFresh) tb.SelectAll();
+            else tb.Select(tb.Text.Length, 0);
+            _editorFresh = false;
+        };
+        HintChanged?.Invoke("Enter — zatwierdź nazwę ramki · Esc — anuluj");
+    }
+
+    private string? _labelFrameId;
+
     private void CommitLabelEdit(bool cancel = false)
     {
         if (_labelEditor is not { } tb || _finishingEdit) return;
@@ -611,12 +715,11 @@ public sealed partial class MapCanvas
             // najpierw fokus na płótno — inaczej po usunięciu pola przeskoczyłby do panelu właściwości
             Focus(FocusState.Programmatic);
             _editorLayer.Children.Remove(tb);
-            if (!cancel && FindLink(_labelLinkId) is { } link)
-            {
-                var text = tb.Text.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
-                link.Label = text.Length == 0 ? null : text;
-            }
+            var text = tb.Text.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
+            if (!cancel && FindLink(_labelLinkId) is { } link) link.Label = text.Length == 0 ? null : text;
+            if (!cancel && _session.FindFrame(_labelFrameId) is { } frame) frame.Title = text.Length == 0 ? null : text;
             _labelLinkId = null;
+            _labelFrameId = null;
             _session.EndBatch();
             HintChanged?.Invoke(null);
             Focus(FocusState.Programmatic);

@@ -44,11 +44,13 @@ public static class LinkRouting
             var pts = new List<Vec>(via.Count + 2) { start };
             pts.AddRange(via);
             pts.Add(end);
-            var curves = curve == LinkCurve.Straight
-                ? pts.Zip(pts.Skip(1), Cubic.Line).ToList()
-                : GeometryMath.CatmullRom(pts);
+            var curves = curve == LinkCurve.Curved
+                ? GeometryMath.CatmullRom(pts)
+                : pts.Zip(pts.Skip(1), Cubic.Line).ToList();
             return Finish(curves, null, null);
         }
+
+        if (curve == LinkCurve.Elbow) return Finish(Elbow(link, from, to), null, null);
 
         if (curve == LinkCurve.Straight)
         {
@@ -66,6 +68,80 @@ public static class LinkRouting
         var q1 = PushOut(fc, s, p1);
         var q2 = PushOut(tc, e, p2);
         return Finish([new Cubic(s, q1, q2, e)], p1, p2);
+    }
+
+    /// <summary>
+    /// Czy łamana idzie najpierw w poziomie (z boku kafelka na bok): gdy odstęp między krawędziami kafelków jest
+    /// większy w poziomie niż w pionie. Kafelek wyraźnie pod drugim dostaje więc łącznik „jak w drzewie
+    /// genealogicznym” (z dołu do góry), a kafelek obok — z boku na bok.
+    /// </summary>
+    public static bool ElbowHorizontal(Box from, Box to)
+    {
+        double gapX = Math.Max(to.Left - from.Right, from.Left - to.Right);
+        double gapY = Math.Max(to.Top - from.Bottom, from.Top - to.Bottom);
+        return gapX >= gapY;
+    }
+
+    /// <summary>
+    /// Łamana pod kątem prostym: bok → środek → bok (albo góra/dół), z zaokrąglonymi narożnikami.
+    /// Środkowy odcinek leży w połowie drogi, przesunięty o <see cref="Link.C1"/> (X albo Y — zależnie od kierunku).
+    /// </summary>
+    public static List<Cubic> Elbow(Link link, NodeOutline from, NodeOutline to)
+    {
+        const double far = 1e5;
+        var fc = from.Center;
+        var tc = to.Center;
+        var offset = link.C1 ?? Vec.Zero;
+        Vec s, e, m1, m2;
+        if (ElbowHorizontal(from.Box, to.Box))
+        {
+            int side = tc.X >= fc.X ? 1 : -1;
+            s = from.BoundaryToward(fc + new Vec(side * far, 0));
+            e = to.BoundaryToward(tc - new Vec(side * far, 0));
+            double mx = (s.X + e.X) / 2 + offset.X;
+            m1 = new Vec(mx, s.Y);
+            m2 = new Vec(mx, e.Y);
+        }
+        else
+        {
+            int side = tc.Y >= fc.Y ? 1 : -1;
+            s = from.BoundaryToward(fc + new Vec(0, side * far));
+            e = to.BoundaryToward(tc - new Vec(0, side * far));
+            double my = (s.Y + e.Y) / 2 + offset.Y;
+            m1 = new Vec(s.X, my);
+            m2 = new Vec(e.X, my);
+        }
+        if (Vec.Distance(m1, m2) < 1) return [Cubic.Line(s, e)]; // w jednej linii — po prostu prosta
+        return RoundedPolyline([s, m1, m2, e], 10);
+    }
+
+    /// <summary>Łamana z zaokrąglonymi narożnikami (promień nie większy niż połowa krótszego odcinka).</summary>
+    public static List<Cubic> RoundedPolyline(IReadOnlyList<Vec> pts, double radius)
+    {
+        var result = new List<Cubic>();
+        var cur = pts[0];
+        for (int i = 1; i < pts.Count - 1; i++)
+        {
+            var corner = pts[i];
+            var a = corner - pts[i - 1];
+            var b = pts[i + 1] - corner;
+            double r = Math.Min(radius, Math.Min(a.Length, b.Length) / 2);
+            if (r < 0.5)
+            {
+                result.Add(Cubic.Line(cur, corner));
+                cur = corner;
+                continue;
+            }
+            var da = a.Normalized();
+            var db = b.Normalized();
+            var p0 = corner - da * r;
+            var p3 = corner + db * r;
+            if (Vec.Distance(cur, p0) > 0.01) result.Add(Cubic.Line(cur, p0));
+            result.Add(new Cubic(p0, corner - da * (r * 0.45), corner + db * (r * 0.45), p3));
+            cur = p3;
+        }
+        result.Add(Cubic.Line(cur, pts[^1]));
+        return result;
     }
 
     private static Vec PushOut(Vec center, Vec boundary, Vec control)

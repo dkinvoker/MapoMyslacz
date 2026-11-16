@@ -49,7 +49,7 @@ public sealed partial class MainWindow : Window
             (_, _) => ToastHost.Visibility = Toast.IsOpen ? Visibility.Visible : Visibility.Collapsed);
         UpdateBar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty,
             (_, _) => UpdateHost.Visibility = UpdateBar.IsOpen ? Visibility.Visible : Visibility.Collapsed);
-        foreach (var host in new[] { ToastHost, UpdateHost })
+        foreach (var host in new[] { ToastHost, UpdateHost, SearchHost, FocusHost })
         {
             host.Shadow = new ThemeShadow();
             host.Translation = new System.Numerics.Vector3(0, 0, 24);
@@ -59,6 +59,10 @@ public sealed partial class MainWindow : Window
         Map.Notify += m => ShowToast(m, InfoBarSeverity.Informational);
         Map.HintChanged += h => StatusText.Text = h ?? DefaultHint;
         Map.OpenLinkRequested += n => _ = OpenLinkAsync(n);
+        Map.FocusChanged += OnFocusChanged;
+        Map.PointerInteractionEnded += OnPointerInteractionEnded;
+        Map.ShowMinimap = _settings.ShowMinimap;
+        Map.ShowGrid = _settings.ShowGrid;
         Closed += (_, _) => Map.Shutdown();
         BuildStyleMenu();
         AddAccelerators();
@@ -84,6 +88,14 @@ public sealed partial class MainWindow : Window
                 imported.MarkDirty();
                 return imported;
             }
+            if (IsOutlineFile(path))
+            {
+                var outline = MarkdownOutline.Parse(File.ReadAllText(path, System.Text.Encoding.UTF8));
+                outline.Title ??= Path.GetFileNameWithoutExtension(path);
+                var imported = new MapSession(outline);
+                imported.MarkDirty();
+                return imported;
+            }
             var s = MapSession.Open(path);
             _settings.AddRecent(path);
             return s;
@@ -105,7 +117,10 @@ public sealed partial class MainWindow : Window
         UpdateCaptionInset();
         Map.Focus(FocusState.Programmatic);
         _loadedTcs.TrySetResult();
+        if (Headless) return;
         if (_startupError is not null) await ShowErrorAsync("Nie udało się otworzyć mapy", _startupError);
+        await OfferRecoveryAsync();
+        StartAutoSave();
         SetupUpdates();
     }
 
@@ -189,6 +204,10 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.P, VirtualKeyModifiers.Control, () => _ = PrintAsync());
         Add(VirtualKey.Left, VirtualKeyModifiers.Menu, () => _ = GoBackAsync());
         Add(VirtualKey.F1, VirtualKeyModifiers.None, () => _ = ShowHelpAsync());
+        Add(VirtualKey.F, VirtualKeyModifiers.Control, OpenSearch);
+        Add(VirtualKey.F3, VirtualKeyModifiers.None, () => StepSearch(1));
+        Add(VirtualKey.F3, VirtualKeyModifiers.Shift, () => StepSearch(-1));
+        Add(VirtualKey.F, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, Map.ToggleFocus);
     }
 
     // ================================================================== sesja
@@ -201,12 +220,15 @@ public sealed partial class MainWindow : Window
             _session.SelectionChanged -= OnSelectionChanged;
         }
         _session = s;
+        ResetAutoSave();
         s.Changed += OnSessionChanged;
         s.SelectionChanged += OnSelectionChanged;
         Map.Session = s;
         UpdateTitle();
+        RefreshBacklinks();
         RebuildProperties();
         UpdateCounts();
+        RefreshSearch();
     }
 
     private void OnSessionChanged()
@@ -214,13 +236,15 @@ public sealed partial class MainWindow : Window
         UpdateTitle();
         RefreshProperties();
         UpdateCounts();
+        RefreshSearch();
     }
 
-    private bool _propertiesPending;
+    private bool _propertiesPending, _propertiesAfterPointer;
 
     /// <summary>
     /// Panel przebudowujemy raz, gdy interfejs jest bezczynny — seria zmian zaznaczenia (np. kilka kliknięć z Ctrl,
-    /// Zaznacz wszystko) nie przebudowuje go po kilkadziesiąt razy.
+    /// Zaznacz wszystko) nie przebudowuje go po kilkadziesiąt razy. Gdy przycisk myszy jest wciśnięty (kafelek zaznaczony
+    /// i od razu przeciągany), panel czeka do puszczenia — jego budowanie i układ nie przycinają początku przeciągania.
     /// </summary>
     private void OnSelectionChanged()
     {
@@ -230,8 +254,20 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
             _propertiesPending = false;
+            if (Map.IsPointerBusy)
+            {
+                _propertiesAfterPointer = true;
+                return;
+            }
             RebuildProperties();
         });
+    }
+
+    private void OnPointerInteractionEnded()
+    {
+        if (!_propertiesAfterPointer) return;
+        _propertiesAfterPointer = false;
+        OnSelectionChanged();
     }
 
     private void UpdateTitle()
@@ -244,7 +280,7 @@ public sealed partial class MainWindow : Window
     private void UpdateCounts()
     {
         int nodes = _session.Map.Nodes.Count, links = _session.Map.Links.Count;
-        int sel = _session.SelectedNodes.Count + _session.SelectedLinks.Count;
+        int sel = _session.SelectionCount;
         CountText.Text = $"{nodes} {Plural(nodes, "kafelek", "kafelki", "kafelków")} · {links} {Plural(links, "strzałka", "strzałki", "strzałek")}"
                          + (sel > 0 ? $" · zaznaczono {sel}" : "");
     }
@@ -303,11 +339,12 @@ public sealed partial class MainWindow : Window
 
     private void BuildStyleMenu()
     {
+        Map.CustomPresets = _settings.CustomStyles.Select(c => new StylePreset(c.Name, "Mój styl", c.Style)).ToList();
         StyleMenu.Items.Clear();
-        foreach (var p in Styles.Presets)
+        void AddPreset(StylePreset p, string text)
         {
             var preset = p;
-            var item = new MenuFlyoutItem { Text = $"{p.Name} — {p.Description}" };
+            var item = new MenuFlyoutItem { Text = text };
             item.Click += (_, _) =>
             {
                 if (_session.SelectedNodes.Count == 0) ShowToast("Najpierw zaznacz kafelki, którym chcesz nadać styl.", InfoBarSeverity.Informational);
@@ -315,6 +352,73 @@ public sealed partial class MainWindow : Window
             };
             StyleMenu.Items.Add(item);
         }
+        foreach (var p in Map.CustomPresets) AddPreset(p, $"★ {p.Name}");
+        if (Map.CustomPresets.Count > 0) StyleMenu.Items.Add(new MenuFlyoutSeparator());
+        foreach (var p in Styles.Presets) AddPreset(p, $"{p.Name} — {p.Description}");
+
+        StyleMenu.Items.Add(new MenuFlyoutSeparator());
+        var save = new MenuFlyoutItem { Text = "Zapisz styl zaznaczonego kafelka jako mój…", Icon = new FontIcon { Glyph = "" } };
+        save.Click += (_, _) => _ = SaveCustomStyleAsync();
+        StyleMenu.Items.Add(save);
+        if (_settings.CustomStyles.Count > 0)
+        {
+            var remove = new MenuFlyoutSubItem { Text = "Usuń mój styl", Icon = new FontIcon { Glyph = "" } };
+            foreach (var c in _settings.CustomStyles.ToList())
+            {
+                var custom = c;
+                var it = new MenuFlyoutItem { Text = c.Name };
+                it.Click += (_, _) =>
+                {
+                    _settings.CustomStyles.Remove(custom);
+                    _settings.Save();
+                    BuildStyleMenu();
+                    RebuildProperties();
+                };
+                remove.Items.Add(it);
+            }
+            StyleMenu.Items.Add(remove);
+        }
+    }
+
+    /// <summary>Wygląd zaznaczonego kafelka jako własny gotowy styl (w ustawieniach — dostępny w każdej mapie).</summary>
+    private async Task SaveCustomStyleAsync()
+    {
+        Map.CommitEdit();
+        var node = _session.SingleNode ?? _session.SelectedNodeObjects.FirstOrDefault();
+        var style = node?.Style?.Clone();
+        if (style is not null) style.BranchColor = null; // kolor gałęzi zależy od miejsca w mapie, nie od stylu
+        if (node is null || style is null || style.IsEmpty)
+        {
+            ShowToast("Zaznacz kafelek o własnym wyglądzie (kolor, kształt, czcionka…), żeby zapisać go jako styl.", InfoBarSeverity.Informational);
+            return;
+        }
+        var name = new TextBox { PlaceholderText = "np. „Postać gracza”, „Lokacja — las”", Text = node.Text.Split('\n')[0].Trim() is { Length: > 0 and <= 30 } t ? t : "" };
+        var dlg = new ContentDialog
+        {
+            Title = "Zapisz jako mój styl",
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock { Text = "Styl będzie dostępny w menu „Styl”, w panelu i w menu kafelka — we wszystkich mapach.", TextWrapping = TextWrapping.Wrap, Opacity = 0.8 },
+                    name,
+                },
+            },
+            PrimaryButtonText = "Zapisz",
+            CloseButtonText = "Anuluj",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        name.Loaded += (_, _) => { name.Focus(FocusState.Programmatic); name.SelectAll(); };
+        if (await ShowDialogAsync(dlg) != ContentDialogResult.Primary) return;
+        var title = name.Text.Trim();
+        if (title.Length == 0) return;
+        _settings.CustomStyles.RemoveAll(c => string.Equals(c.Name, title, StringComparison.CurrentCultureIgnoreCase));
+        _settings.CustomStyles.Insert(0, new CustomStyle { Name = title, Style = style });
+        _settings.Save();
+        BuildStyleMenu();
+        RebuildProperties();
+        ShowToast($"Zapisano styl „{title}”.");
     }
 
     private void FileMenu_Opening(object sender, object e)
@@ -354,10 +458,11 @@ public sealed partial class MainWindow : Window
         var file = items.OfType<StorageFile>().FirstOrDefault(f =>
             f.FileType.Equals(MindMap.FileExtension, StringComparison.OrdinalIgnoreCase) ||
             f.FileType.Equals(".xmind", StringComparison.OrdinalIgnoreCase) ||
-            f.FileType.Equals(".json", StringComparison.OrdinalIgnoreCase));
+            f.FileType.Equals(".json", StringComparison.OrdinalIgnoreCase) ||
+            IsOutlineFile(f.Path));
         if (file is null)
         {
-            ShowToast("Upuść plik mapy (.mapo) albo XMind (.xmind).", InfoBarSeverity.Warning);
+            ShowToast("Upuść plik mapy (.mapo), XMind (.xmind) albo konspekt (.md, .txt).", InfoBarSeverity.Warning);
             return;
         }
         await OpenFileAsync(file.Path);
@@ -375,7 +480,9 @@ public sealed partial class MainWindow : Window
         L("Shift albo Ctrl + przeciągnij od pustego miejsca — zaznacza prostokątem (dokłada do zaznaczenia)");
         L("Kółko myszy — powiększenie w miejscu kursora, Shift + kółko — przewijanie w poziomie");
         L("Klik — zaznacza, Ctrl+klik — dodaje/odejmuje od zaznaczenia, Shift+klik — dodaje");
-        L("Przeciągnij kafelek — przesuwa go z całą gałęzią (Alt — bez gałęzi, Shift — tylko poziomo/pionowo)");
+        L("Przeciągnij kafelek — przesuwa go z całą gałęzią (Alt — bez gałęzi, Shift — tylko poziomo/pionowo, Ctrl — bez przyciągania do sąsiadów)");
+        L("Kwadracik w rogu zaznaczonego kafelka — szerokość tekstu (dwuklik na nim — znowu automatyczna)");
+        L("Minimapa w prawym dolnym rogu (gdy mapa nie mieści się w oknie): klik albo przeciągnięcie — przejście w to miejsce");
         L("Dwuklik na kafelku — edycja tekstu, na strzałce — podpis, na pustym miejscu — nowy kafelek");
         L("Kółko „+” przy zaznaczonym kafelku: klik — nowe dziecko, przeciągnij na kafelek — strzałka, na puste miejsce — dziecko w tym miejscu");
         L("Zaznaczona strzałka: przeciągnij ją, żeby wygiąć, albo przesuń białe uchwyty krzywizny");
@@ -390,11 +497,23 @@ public sealed partial class MainWindow : Window
         L("Ctrl+B / Ctrl+I — pogrubienie / kursywa · Ctrl+0 — cała mapa · Ctrl+1 — 100% · Ctrl++ / Ctrl+− — powiększenie");
         L("Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S — nowa / otwórz / zapisz / zapisz jako");
         L("Ctrl+P — drukuj · Ctrl+Shift+E — PDF · Ctrl+E — obraz PNG\n");
+        H("Duże mapy");
+        L("Ctrl+F — szukaj w tekstach i notatkach (bez wielkości liter i polskich znaków) · Enter / F3 — następny, Shift+Enter / Shift+F3 — poprzedni");
+        L("Ctrl+Shift+F — pokaż tylko zaznaczoną gałąź i jej powiązania (Esc — cała mapa)");
+        L("Ctrl+G — otocz zaznaczone kafelki ramką; ramkę przesuwa się za nagłówek, dwuklik na nim — nazwa");
+        L("Kilka zaznaczonych kafelków: prawy przycisk → Wyrównaj (krawędzie, środki, równe odstępy)");
+        L("Widok (ikona oka): minimapa, siatka kropek\n");
         H("Znaczniki i linki");
         L("Znaczniki (priorytet, postęp, emoji) — panel po prawej albo menu kontekstowe kafelka");
-        L("Link w kafelku: adres strony albo inna mapa .mapo / dowolny plik (panel → Link)");
+        L("Link w kafelku: adres strony, inna mapa .mapo, dowolny plik albo konkretny kafelek (panel → Link → „Kafelek…”)");
+        L("Link do kafelka w innej mapie: prawy przycisk na nim → „Kopiuj link do kafelka”, potem wklej w polu Link");
         L("Ctrl+klik na kafelku albo klik w niebieski znaczek — otwiera link; inna mapa otwiera się w tym oknie");
-        L("Alt+← albo strzałka „wstecz” na pasku — powrót do poprzedniej mapy");
+        L("Alt+← albo strzałka „wstecz” na pasku — powrót do poprzedniej mapy · panel mapy pokazuje, które mapy prowadzą do tej");
+        L("Strzałka: prawy przycisk → Kształt linii — łuk, prosta albo łamana (pod kątem prostym)\n");
+        H("Pliki");
+        L("Autozapis co minutę — po awarii program przy starcie zaproponuje przywrócenie niezapisanych zmian");
+        L("Plik → Eksportuj / Importuj konspekt (Markdown) — notatki, wiki, Obsidian; .md i .txt można też upuścić na okno");
+        L("Styl → „Zapisz styl zaznaczonego kafelka jako mój” — własne gotowe style we wszystkich mapach");
         var dlg = new ContentDialog
         {
             Title = "Obsługa MapoMyślacza",
