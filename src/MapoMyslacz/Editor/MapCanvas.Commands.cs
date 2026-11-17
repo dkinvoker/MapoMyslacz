@@ -599,6 +599,7 @@ public sealed partial class MapCanvas
             return;
         }
         if (_editor is null || _finishingEdit) return;
+        Trace($"commit edycji '{_editor.Text}'");
         _finishingEdit = true;
         try
         {

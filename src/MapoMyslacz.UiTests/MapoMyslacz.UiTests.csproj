@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Testy interfejsu: uruchamiają prawdziwą aplikację (zbudowaną wcześniej, np. dotnet build src/MapoMyslacz) i sterują
+    nią myszą i klawiaturą przez UI Automation (FlaUI). Przejmują mysz, więc działają tylko na życzenie:
+
+      set MAPOMYSLACZ_UI_TESTS=1
+      dotnet test src/MapoMyslacz.UiTests
+
+    Bez tej zmiennej testy są pomijane (np. w GitHub Actions). Ustawienia i autozapisy trafiają do folderu tymczasowego.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>MapoMyslacz.UiTests</RootNamespace>
+    <UseWindowsForms>false</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
+    <!-- FlaUI 4.0 ciągnie System.Drawing.Common 5.0.2 ze znaną luką — wymuszamy aktualną wersję -->
+    <PackageReference Include="System.Drawing.Common" Version="9.0.10" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MapoMyslacz.Core\MapoMyslacz.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="MapoMyslacz.Core.Model" />
+  </ItemGroup>
+
+</Project>

@@ -76,11 +76,46 @@ public sealed partial class MapCanvas : Grid
         {
             Clip = new RectangleGeometry { Rect = new Rect(0, 0, e.NewSize.Width, e.NewSize.Height) };
             if (!_viewInitialized && e.NewSize.Width > 0) InitializeView();
+            else if (_viewInitialized && e.PreviousSize.Width > 0)
+            {
+                // środek widoku zostaje w miejscu (zmiana okna, panel właściwości) — inaczej widok zapisany w pliku
+                // otwierał się przesunięty o pół szerokości panelu, który pojawia się już po pierwszym układzie
+                _pan = new Vec(_pan.X + (e.NewSize.Width - e.PreviousSize.Width) / 2, _pan.Y + (e.NewSize.Height - e.PreviousSize.Height) / 2);
+                ApplyTransform();
+            }
             _canvas.Invalidate();
         };
         ActualThemeChanged += (_, _) => Rebuild();
         Bind(_session);
         InitInput();
+    }
+
+    /// <summary>
+    /// Płótno jako element UI Automation (czytniki ekranu, testy interfejsu) — bez tego panel siatki jest w drzewie
+    /// dostępności niewidoczny.
+    /// </summary>
+    protected override Microsoft.UI.Xaml.Automation.Peers.AutomationPeer OnCreateAutomationPeer() => new CanvasPeer(this);
+
+    // „partial” jest konieczne: generator C#/WinRT tworzy wtedy tablice metod dla nadpisań (bez tego UI Automation
+    // dostaje błędy i urywa drzewo okna)
+    private sealed partial class CanvasPeer(MapCanvas owner) : Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer(owner)
+    {
+        protected override Microsoft.UI.Xaml.Automation.Peers.AutomationControlType GetAutomationControlTypeCore() =>
+            Microsoft.UI.Xaml.Automation.Peers.AutomationControlType.Pane;
+
+        protected override string GetClassNameCore() => nameof(MapCanvas);
+
+        protected override string GetNameCore() => "Płótno mapy";
+
+        // dzieci: tylko pola edycji tekstu — element Win2D w drzewie dostępności urywał dalsze elementy okna
+        // (panel, zakładki, pasek stanu przestawały być widoczne dla czytników ekranu i testów)
+        protected override IList<Microsoft.UI.Xaml.Automation.Peers.AutomationPeer> GetChildrenCore()
+        {
+            var peers = new List<Microsoft.UI.Xaml.Automation.Peers.AutomationPeer>();
+            foreach (var child in owner._editorLayer.Children)
+                if (Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(child) is { } p) peers.Add(p);
+            return peers;
+        }
     }
 
     /// <summary>Zwalnia powierzchnię Win2D przy zamykaniu okna.</summary>

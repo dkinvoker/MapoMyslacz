@@ -4,11 +4,12 @@ Lista rzeczy, które jeszcze nie są zrobione. Gotowe funkcje opisuje [CHANGELOG
 Orientacyjna ilość pracy: **[S]** mała, **[M]** średnia, **[L]** duża.
 
 ## ⭐ Następne w kolejce
-- **Obrazki w kafelkach [M] — prośba użytkownika:** wklejenie (Ctrl+V), przeciągnięcie pliku albo „Wybierz
-  obrazek…” w panelu. Obrazek nad tekstem kafelka, z uchwytem do zmiany rozmiaru; w pliku `.mapo` osadzony jako
-  base64 (mapa zostaje jednym plikiem — wygodne przy przenoszeniu kampanii), z opcją „trzymaj obok mapy” dla dużych
-  zdjęć. Win2D rysuje bitmapy szybko, minimapa i eksport PDF/PNG dostaną je za darmo. Import z XMind mógłby wtedy
-  przenosić też obrazki.
+- **Arkusze — cały plik naraz [S–M]:** wyszukiwanie (Ctrl+F), druk/PDF i konspekt Markdown działają dziś na bieżącym
+  arkuszu — opcja „wszystkie arkusze” (wyniki z nazwą arkusza, PDF z arkuszem na stronę, konspekt z nagłówkiem na
+  arkusz). Do tego przeciągnięcie kafelków na zakładkę innego arkusza (dziś: wytnij i wklej).
+- **Obrazki — dalsze kroki [S–M]:** import obrazków z XMind (dziś informacja o obrazku trafia do notatki), opcja
+  „trzymaj obok mapy” dla dużych zdjęć (plik w folderze mapy zamiast base64), obrazek obok tekstu zamiast nad nim,
+  przycinanie.
 
 ## 🗺️ Kampania (mapy połączone linkami)
 - **Podgląd linkowanej mapy [S]:** po najechaniu na znaczek linku — miniatura mapy docelowej (scena Win2D jak
@@ -35,8 +36,9 @@ Orientacyjna ilość pracy: **[S]** mała, **[M]** średnia, **[L]** duża.
 - **Kotwice [S]:** przypinanie końca strzałki do wybranej krawędzi kafelka zamiast automatycznego punktu.
 
 ## 🎨 Wygląd
-- **Motywy map [M]:** zestawy kolorów całej mapy (pastelowy, ciemny „noc”, pergamin do RPG, wysoki kontrast) — zmiana
-  jednym kliknięciem; style kafelków mogłyby odwoływać się do kolorów motywu zamiast stałych wartości.
+- **Własne motywy [S]:** „zapisz kolory tej mapy jako motyw” (jak własne gotowe style) — dostępny we wszystkich mapach.
+- **Motywy: czcionka, ramki i gałęzie [S]:** krój pisma w motywie (np. odręczny do „Tablicy”), kolory ramek, grubość
+  gałęzi drzewa.
 - **Przyciąganie do siatki [S]:** siatka kropek już jest — przy włączonej środki kafelków mogłyby do niej przyskakiwać.
 
 ## 📄 Pliki i wymiana
@@ -48,7 +50,6 @@ Orientacyjna ilość pracy: **[S]** mała, **[M]** średnia, **[L]** duża.
 - **Historia wersji [M]:** autozapis już działa — można by trzymać kilka kopii z ostatnich dni („przywróć mapę
   z wczoraj”).
 - **Import z FreeMind/Freeplane (.mm) [M]:** to prosty XML — kolejny popularny format map.
-- **Kilka arkuszy w jednym pliku [M]:** zakładki nad płótnem, jak w XMind (np. osobny arkusz na każdą sesję gry).
 - **Miniatury `.mapo` w Eksploratorze [L]:** shell extension rysujący podgląd (wymaga osobnej biblioteki COM).
 
 ## 🧑‍🤝‍🧑 Wygoda
@@ -59,6 +60,7 @@ Orientacyjna ilość pracy: **[S]** mała, **[M]** średnia, **[L]** duża.
 - **Obsługa dotyku i pióra [M]:** szczypanie do powiększania, przesuwanie dwoma palcami, długie przytrzymanie = menu.
 
 ## 🛠️ Technika
-- **Testy interfejsu [M]:** automatyczne testy płótna (np. WinAppDriver/UI Automation) dla przeciągania i edycji.
+- **Więcej testów interfejsu [S]:** podstawowe już są (FlaUI) — brakuje obrazków (schowek, upuszczanie pliku),
+  motywów, menu kontekstowych i okien dialogowych (druk, eksport).
 - Na później (dziś program jest za mały, żeby się tym przejmować): podpisywanie exe certyfikatem, aktualizacje
   różnicowe.

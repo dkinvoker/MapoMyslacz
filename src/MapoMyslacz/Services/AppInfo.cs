@@ -14,7 +14,12 @@ public static class AppInfo
 
     public static string FullName => $"{Name} v{Version}";
 
-    /// <summary>Folder danych programu: %LOCALAPPDATA%\MapoMyslacz (usuwa go skrypt odinstalowania).</summary>
+    /// <summary>
+    /// Folder danych programu: %LOCALAPPDATA%\MapoMyslacz (usuwa go skrypt odinstalowania). Zmienna
+    /// MAPOMYSLACZ_DATA_DIR podmienia go — testy interfejsu nie ruszają wtedy ustawień ani autozapisów użytkownika.
+    /// </summary>
     public static string DataFolder =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MapoMyslacz");
+        Environment.GetEnvironmentVariable("MAPOMYSLACZ_DATA_DIR") is { Length: > 0 } custom
+            ? custom
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MapoMyslacz");
 }

@@ -3,6 +3,7 @@
     <Project Path="src/MapoMyslacz.Core/MapoMyslacz.Core.csproj" />
     <Project Path="src/MapoMyslacz.Launcher/MapoMyslacz.Launcher.csproj" />
     <Project Path="src/MapoMyslacz.Tests/MapoMyslacz.Tests.csproj" />
+    <Project Path="src/MapoMyslacz.UiTests/MapoMyslacz.UiTests.csproj" />
     <Project Path="src/MapoMyslacz/MapoMyslacz.csproj" />
   </Folder>
   <Folder Name="/tools/">

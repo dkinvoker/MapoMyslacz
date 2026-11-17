@@ -101,7 +101,7 @@ public sealed partial class MapCanvas
         var props = pt.Properties;
         var pos = pt.Position;
         var w = ToWorld(pos);
-        Trace($"pressed {pos} drag={_drag} left={props.IsLeftButtonPressed}");
+        if (TraceFile is not null) Trace($"pressed {pos} świat={w} zoom={_zoom:0.###} drag={_drag} left={props.IsLeftButtonPressed} trafienie={HitTest(w).Kind}");
         Focus(FocusState.Pointer);
         StopAnimation();
         if (_editor is not null || _labelEditor is not null) CommitEdit();
@@ -710,6 +710,7 @@ public sealed partial class MapCanvas
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (TraceFile is not null) Trace($"key {e.Key} źródło={e.OriginalSource?.GetType().Name} edytor={_editor is not null} zaznaczone={_session.SelectionCount}");
         if (_editor is not null)
         {
             // pole edycji dopiero powstaje (nie ma jeszcze fokusu) — Enter/Tab/Esc i tak do niego należą

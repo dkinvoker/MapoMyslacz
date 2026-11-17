@@ -4,9 +4,42 @@ Numer wersji jest w jednym miejscu: `Directory.Build.props` (`<Version>`).
 Widać go na pasku tytułu aplikacji, w oknie „O programie” i we właściwościach pliku exe.
 Sekcja z numerem wersji trafia automatycznie do opisu wydania na GitHubie (patrz README → „Wydawanie nowej wersji”).
 
-## 1.3 — 2026-11-16
+## 1.3.1 — 2026-11-17
 
-### Nowe
+Pierwsze wydanie wersji 1.3. Wersja 1.3.0 (16 listopada) nie była publikowana osobno, więc ten opis obejmuje
+obie części.
+
+### Nowe w 1.3.1
+- **Obrazki w kafelkach.** Wklejenie obrazka ze schowka (Ctrl+V), przeciągnięcie pliku z Eksploratora (na kafelek —
+  do niego, na puste miejsce — nowy kafelek z obrazkiem) albo panel → Obrazek → „Wstaw…”. Obrazek stoi nad tekstem
+  kafelka; kwadracik w rogu zmienia jego rozmiar (dwuklik — rozmiar domyślny), „Otwórz” pokazuje go w domyślnym
+  programie do obrazków. Obrazki są osadzone w pliku `.mapo` (mapa zostaje jednym plikiem), duże zdjęcia zmniejszane do 1600 px,
+  ten sam obrazek w kilku kafelkach zapisuje się raz. Przechodzą przez kopiuj/wklej (także do innej mapy), cofanie,
+  eksport PNG, PDF i druk.
+- **Arkusze — kilka map w jednym pliku.** Zakładki pod płótnem (np. osobny arkusz na każdą sesję gry): „+” albo
+  Ctrl+T dodaje arkusz, Ctrl+PageDown/PageUp przełącza, dwuklik zmienia nazwę, prawy przycisk — kopia, przestawianie,
+  usuwanie. Każdy arkusz pamięta swój widok i historię cofania. Starsze wersje programu otwierają z takiego pliku
+  pierwszy arkusz. Import z XMind przenosi wszystkie arkusze jako zakładki (wcześniej tylko pierwszy).
+- **Motywy map:** Domyślny, Pastelowy, Noc, Pergamin (do sesji RPG), Tablica, Schemat i Wysoki kontrast — kolory
+  płótna, kafelków, tematu głównego i palety gałęzi jednym kliknięciem (panel mapy, karty z podglądem). Motyw
+  uzupełnia tylko to, czego kafelek nie ustawia sam; „Ujednolić z motywem…” zdejmuje własne kolory (kształty,
+  czcionki i wygięcia zostają).
+- **Style strzałek** niezależne od motywu: przerywane łuki, ciągłe łuki, kropkowane, proste, łamane (schemat),
+  kolorowe (w kolorze gałęzi kafelka, z którego wychodzą — widać, czyja to relacja) i dwukierunkowe.
+- **Gałęzie da się kliknąć.** Linia od rodzica do dziecka (ta bez grotu, powstająca przez Tab albo przeciągnięcie
+  „+” na puste miejsce) to gałąź drzewa, nie strzałka — dotąd nie dało się jej zaznaczyć. Teraz klik ją zaznacza:
+  Delete odpina kafelek od rodzica (zostaje na miejscu jako swobodny), menu ma „Zamień na strzałkę” i kolor gałęzi.
+
+### Poprawki w 1.3.1
+- Płótno jest widoczne dla czytników ekranu i narzędzi UI Automation (wcześniej drzewo dostępności kończyło się
+  na płótnie).
+- Po zmianie rozmiaru okna środek widoku zostaje w miejscu (mapa nie „ucieka” w róg).
+- `MAPOMYSLACZ_DATA_DIR=<folder>` przenosi ustawienia i autozapis w inne miejsce (używają tego testy interfejsu).
+- Testy: 169 jednostkowych (nowe: gałęzie, obrazki, arkusze, motywy i style strzałek) oraz nowy projekt
+  **testów interfejsu** (FlaUI): przeciąganie i cofanie, zaznaczanie prostokątem, Tab z wpisaniem tekstu, klik
+  w gałąź, wyszukiwanie, ramka, nowy arkusz — uruchamiane na życzenie (`MAPOMYSLACZ_UI_TESTS=1`).
+
+### Nowe w 1.3.0
 - **Autozapis i odzyskiwanie po awarii.** Co minutę niezapisane zmiany trafiają do
   `%LOCALAPPDATA%\MapoMyslacz\autosave`. Po zapisaniu mapy albo poprawnym zamknięciu kopia znika; po awarii
   (albo wyłączonym prądzie) program przy starcie proponuje przywrócenie — mapa wraca jako niezapisana,
@@ -42,7 +75,7 @@ Sekcja z numerem wersji trafia automatycznie do opisu wydania na GitHubie (patrz
 - **Płynne przejścia widoku:** „Pokaż całą mapę”, przyciski powiększenia, przechodzenie strzałkami, wyszukiwanie
   i linki przesuwają widok animacją zamiast skoku.
 
-### Poprawki i wydajność
+### Poprawki i wydajność w 1.3.0
 - **Przeciąganie na ogromnych mapach**: nieruchoma część sceny trafia na czas przeciągania do bitmapy, a w każdej
   klatce rysowane jest tylko to, co się rusza (kafelki z gałęziami, wyginana strzałka, kafelek o zmienianej szerokości).
   Na mapie testowej z 3660 kafelkami klatka przy przeciąganiu: ~200 ms → 12–19 ms.

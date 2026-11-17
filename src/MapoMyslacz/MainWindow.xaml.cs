@@ -512,7 +512,8 @@ public sealed partial class MainWindow : Window
         L("Kółko myszy — powiększenie w miejscu kursora, Shift + kółko — przewijanie w poziomie");
         L("Klik — zaznacza, Ctrl+klik — dodaje/odejmuje od zaznaczenia, Shift+klik — dodaje");
         L("Przeciągnij kafelek — przesuwa go z całą gałęzią (Alt — bez gałęzi, Shift — tylko poziomo/pionowo, Ctrl — bez przyciągania do sąsiadów)");
-        L("Kwadracik w rogu zaznaczonego kafelka — szerokość tekstu (dwuklik na nim — znowu automatyczna)");
+        L("Kwadracik w rogu zaznaczonego kafelka — szerokość tekstu albo rozmiar obrazka (dwuklik na nim — znowu automatyczna)");
+        L("Klik w gałąź (linię od rodzica) — zaznacza ją: Delete odpina kafelek od rodzica, prawy przycisk — „Zamień na strzałkę”, kolor");
         L("Minimapa w prawym dolnym rogu (gdy mapa nie mieści się w oknie): klik albo przeciągnięcie — przejście w to miejsce");
         L("Dwuklik na kafelku — edycja tekstu, na strzałce — podpis, na pustym miejscu — nowy kafelek");
         L("Kółko „+” przy zaznaczonym kafelku: klik — nowe dziecko, przeciągnij na kafelek — strzałka, na puste miejsce — dziecko w tym miejscu");
@@ -527,7 +528,8 @@ public sealed partial class MainWindow : Window
         L("Ctrl+L — połącz strzałką (dwa zaznaczone kafelki albo wskaż drugi) · Ctrl+R — uporządkuj gałęzie · Ctrl+/ — zwiń/rozwiń");
         L("Ctrl+B / Ctrl+I — pogrubienie / kursywa · Ctrl+0 — cała mapa · Ctrl+1 — 100% · Ctrl++ / Ctrl+− — powiększenie");
         L("Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S — nowa / otwórz / zapisz / zapisz jako");
-        L("Ctrl+P — drukuj · Ctrl+Shift+E — PDF · Ctrl+E — obraz PNG\n");
+        L("Ctrl+P — drukuj · Ctrl+Shift+E — PDF · Ctrl+E — obraz PNG");
+        L("Ctrl+T — nowy arkusz · Ctrl+PageDown / Ctrl+PageUp — następny / poprzedni arkusz (prawy przycisk na zakładce — nazwa, kopia, usuwanie)\n");
         H("Duże mapy");
         L("Ctrl+F — szukaj w tekstach i notatkach (bez wielkości liter i polskich znaków) · Enter / F3 — następny, Shift+Enter / Shift+F3 — poprzedni");
         L("Ctrl+Shift+F — pokaż tylko zaznaczoną gałąź i jej powiązania (Esc — cała mapa)");
@@ -541,6 +543,10 @@ public sealed partial class MainWindow : Window
         L("Ctrl+klik na kafelku albo klik w niebieski znaczek — otwiera link; inna mapa otwiera się w tym oknie");
         L("Alt+← albo strzałka „wstecz” na pasku — powrót do poprzedniej mapy · panel mapy pokazuje, które mapy prowadzą do tej");
         L("Strzałka: prawy przycisk → Kształt linii — łuk, prosta albo łamana (pod kątem prostym)\n");
+        H("Obrazki i wygląd");
+        L("Obrazek w kafelku: Ctrl+V (obrazek ze schowka), przeciągnięcie pliku na kafelek albo panel → Obrazek → „Wstaw…”; na puste miejsce — nowy kafelek z obrazkiem");
+        L("Obrazki zapisują się w pliku mapy (duże zdjęcia są zmniejszane do 1600 px) — mapa zostaje jednym plikiem");
+        L("Klik w puste miejsce → panel mapy → Motyw: kolory całej mapy i styl strzałek jednym kliknięciem; „Ujednolić z motywem…” zdejmuje własne kolory\n");
         H("Pliki");
         L("Autozapis co minutę — po awarii program przy starcie zaproponuje przywrócenie niezapisanych zmian");
         L("Plik → Eksportuj / Importuj konspekt (Markdown) — notatki, wiki, Obsidian; .md i .txt można też upuścić na okno");
