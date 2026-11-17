@@ -8,12 +8,12 @@ public sealed record LinkTheme(string Id, string Name, string Description, Rgba?
     LinePattern Pattern, LinkCurve Curve, bool ArrowEnd = true, bool ArrowStart = false);
 
 /// <summary>
-/// Motyw mapy: kolory płótna i domyślnego wyglądu kafelków, paleta gałęzi i domyślne strzałki. Motyw uzupełnia tylko
-/// to, czego kafelek albo strzałka nie ustawia sama — własne kolory zostają (można je „ujednolicić” z motywem).
+/// Motyw mapy: kolory płótna i domyślnego wyglądu kafelków, paleta gałęzi, kształt gałęzi i domyślne strzałki. Motyw
+/// uzupełnia tylko to, czego kafelek albo strzałka nie ustawia sama — własne kolory zostają (można je „ujednolicić”).
 /// </summary>
 public sealed record MapTheme(string Id, string Name, string Description,
     Rgba? Canvas, Rgba NodeFill, Rgba? NodeText, Rgba NodeBorder, double NodeBorderWidth,
-    Rgba CentralFill, Rgba? CentralText, Rgba[] BranchPalette, LinkTheme Links);
+    Rgba CentralFill, Rgba? CentralText, Rgba[] BranchPalette, LinkTheme Links, LinkCurve BranchCurve = LinkCurve.Curved);
 
 public static class MapThemes
 {
@@ -62,10 +62,10 @@ public static class MapThemes
             H("#24352D"), H("#2E4239"), H("#F3EFE2"), H("#DAD5C5"), 1.5, H("#F3EFE2"), H("#24352D"),
             P("#F7A8A8", "#F9D07A", "#B9E6A5", "#9FDCE8", "#B7C6F7", "#E0B9F2", "#F7B9DA", "#E8E3D3"),
             Dashed with { Color = H("#DAD5C5") }),
-        new("schemat", "Schemat", "Rzeczowy — biel, granat, łamane strzałki",
+        new("schemat", "Schemat", "Rzeczowy — biel, granat, łamane gałęzie i strzałki",
             H("#F7F8FA"), H("#FFFFFF"), H("#1F2937"), H("#94A3B8"), 1.5, H("#1E3A8A"), H("#FFFFFF"),
             P("#2563EB", "#0891B2", "#059669", "#7C3AED", "#DB2777", "#EA580C", "#4B5563", "#0D9488"),
-            LinkThemes[4] with { Color = H("#64748B") }),
+            LinkThemes[4] with { Color = H("#64748B") }, LinkCurve.Elbow),
         new("kontrast", "Wysoki kontrast", "Czarno na białym, grube linie — czytelne i w druku",
             H("#FFFFFF"), H("#FFFFFF"), H("#000000"), H("#000000"), 2, H("#000000"), H("#FFFFFF"),
             P("#C00000", "#0040C0", "#007A00", "#8000A0", "#C05000", "#006070", "#A00060", "#505050"),
@@ -82,6 +82,9 @@ public static class MapThemes
         // kolor strzałek wybranego stylu bez własnego koloru — z motywu
         return chosen.Color is null && !chosen.BranchColored ? chosen with { Color = theme.Links.Color } : chosen;
     }
+
+    /// <summary>Kształt gałęzi drzewa: wybrany w mapie albo z motywu.</summary>
+    public static LinkCurve BranchCurveFor(MindMap map) => map.BranchCurve ?? Find(map.Theme).BranchCurve;
 
     /// <summary>Czy kafelek jest „tematem głównym” (bez rodzica, z gałęziami) — motyw może go wyróżnić kolorem.</summary>
     public static bool IsCentral(MapIndex idx, Node n) => n.Parent is null && idx.ChildrenOf(n.Id).Count > 0;

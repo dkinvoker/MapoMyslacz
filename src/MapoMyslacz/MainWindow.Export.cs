@@ -17,6 +17,9 @@ public sealed partial class MainWindow
 {
     // ================================================================== druk i PDF
 
+    /// <summary>Ostatni wybór „PDF ze wszystkich arkuszy” (pamiętany do końca pracy z programem).</summary>
+    private bool _pdfAllSheets = true;
+
     private async Task ExportPdfAsync()
     {
         CommitAllEdits();
@@ -32,7 +35,9 @@ public sealed partial class MainWindow
         try
         {
             ShowToast("Tworzę PDF…", InfoBarSeverity.Informational);
-            int pages = await Map.ExportPdfAsync(path, o, MapTitle, AppInfo.FullName);
+            int pages = _pdfAllSheets && _document.Sheets.Count > 1
+                ? await Map.ExportPdfAsync(path, o, _document.Sheets.Select((s, i) => (s.Map, s.Index, _document.SheetName(i))).ToList(), AppInfo.FullName)
+                : await Map.ExportPdfAsync(path, o, MapTitle, AppInfo.FullName);
             ShowToast($"Zapisano PDF: {Path.GetFileName(path)} ({pages} {Plural(pages, "strona", "strony", "stron")})");
         }
         catch (Exception ex)
@@ -98,6 +103,14 @@ public sealed partial class MainWindow
         dpi.SelectedIndex = Math.Max(0, Array.IndexOf([150, 200, 300, 600], o.Dpi));
         var header = new CheckBox { Content = "Tytuł mapy u góry strony", IsChecked = o.Header };
         var white = new CheckBox { Content = "Białe tło (zalecane — oszczędza tusz)", IsChecked = o.WhiteBackground };
+        // PDF pliku z kilkoma arkuszami: wszystkie naraz, każdy od nowej strony (druk — tylko bieżący arkusz)
+        var allSheets = new CheckBox
+        {
+            Content = $"Wszystkie arkusze ({_document.Sheets.Count}) — każdy od nowej strony, z nazwą w nagłówku",
+            IsChecked = _pdfAllSheets,
+            Visibility = !forPrinter && _document.Sheets.Count > 1 ? Visibility.Visible : Visibility.Collapsed,
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(allSheets, "PdfAllSheets");
 
         var info = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.8, FontSize = 12.5 };
         var preview = new Image { Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform, Width = 230, Height = 300 };
@@ -117,6 +130,7 @@ public sealed partial class MainWindow
         left.Children.Add(scaleRow);
         left.Children.Add(header);
         left.Children.Add(white);
+        left.Children.Add(allSheets);
         if (forPrinter)
         {
             left.Children.Add(new TextBlock
@@ -199,6 +213,7 @@ public sealed partial class MainWindow
         dlg.Resources["ContentDialogMaxWidth"] = 720.0;
         if (await ShowDialogAsync(dlg) != ContentDialogResult.Primary) return null;
         Read();
+        if (!forPrinter && _document.Sheets.Count > 1) _pdfAllSheets = allSheets.IsChecked == true;
         _settings.Print = o.Clone();
         _settings.Save();
         return o;

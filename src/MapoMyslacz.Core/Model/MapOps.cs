@@ -368,6 +368,40 @@ public static class MapOps
         return added;
     }
 
+    /// <summary>
+    /// Przenosi kafelki (z gałęziami) do innej mapy — np. na inny arkusz pliku — w tym samym miejscu i z tymi samymi
+    /// id, więc linki „#id” do nich dalej działają. Razem z nimi idą strzałki między nimi, ramki obejmujące tylko
+    /// je i ich obrazki. Strzałki do kafelków, które zostają, znikają (jak przy usuwaniu). Gdyby któreś id było już
+    /// zajęte w docelowej mapie, kafelki dostają nowe. Zwraca przeniesione kafelki (w docelowej mapie).
+    /// </summary>
+    public static List<Node> MoveToMap(MindMap from, MindMap to, IEnumerable<string> nodeIds)
+    {
+        var frag = Copy(from, nodeIds);
+        if (frag.Nodes.Count == 0) return [];
+        var taken = to.Nodes.Select(n => n.Id).Concat(to.Links.Select(l => l.Id)).Concat(to.Frames?.Select(f => f.Id) ?? []).ToHashSet();
+        bool clash = frag.Nodes.Any(n => taken.Contains(n.Id)) || frag.Links.Any(l => taken.Contains(l.Id))
+                     || frag.Frames?.Any(f => taken.Contains(f.Id)) == true;
+        List<Node> moved;
+        if (clash)
+        {
+            moved = Paste(to, frag, offset: Vec.Zero);
+        }
+        else
+        {
+            if (frag.Images is { Count: > 0 } images)
+            {
+                var store = to.Images ??= [];
+                foreach (var (id, data) in images) store.TryAdd(id, data);
+            }
+            moved = frag.Nodes;
+            to.Nodes.AddRange(frag.Nodes);
+            to.Links.AddRange(frag.Links);
+            if (frag.Frames is { Count: > 0 } frames) (to.Frames ??= []).AddRange(frames);
+        }
+        Delete(from, frag.Nodes.Select(n => n.Id).ToList());
+        return moved;
+    }
+
     public static Node CloneNode(Node n, string? parent) => new()
     {
         Id = n.Id, Text = n.Text, X = n.X, Y = n.Y, Parent = parent, Style = n.Style?.Clone(),

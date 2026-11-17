@@ -120,6 +120,40 @@ public sealed partial class MapCanvas
     }
 
     /// <summary>Zapisuje mapę jako PDF według ustawień. Zwraca liczbę stron.</summary>
+    /// <summary>
+    /// PDF z kilku map (np. wszystkich arkuszy pliku): każda zaczyna się od nowej strony, ma własny układ stron
+    /// (dopasowanie albo podział) i swój tytuł w nagłówku. Puste mapy są pomijane. Zwraca liczbę stron.
+    /// </summary>
+    public async Task<int> ExportPdfAsync(string path, PrintOptions o, IReadOnlyList<(MindMap Map, MapIndex Index, string Title)> maps, string producer)
+    {
+        CommitEdit();
+        var (pw, ph) = PrintLayout.PaperMm(o.Paper);
+        var pages = new List<PdfPage>();
+        foreach (var (map, idx, title) in maps)
+        {
+            using var scene = new MapScene();
+            scene.Build(map, idx, o.WhiteBackground ? Rgba.White : CanvasColorFor(map));
+            if (scene.ContentBounds() is not { } content) continue;
+            await scene.EnsureImagesAsync();
+            var plan = PrintLayout.Plan(content.Inflate(4), pw, ph, o);
+            int n = 0;
+            foreach (var page in plan.Pages)
+            {
+                var (bgra, w, h) = RenderPage(scene, page, plan, o, title, ++n, plan.Pages.Count, o.Dpi);
+                pages.Add(new PdfPage(page.PageWidthMm, page.PageHeightMm, w, h, bgra));
+            }
+        }
+        if (pages.Count == 0) throw new InvalidOperationException("Wszystkie arkusze są puste — nie ma czego eksportować.");
+        var docTitle = maps[0].Title;
+        await Task.Run(() =>
+        {
+            var temp = path + ".tmp";
+            using (var fs = File.Create(temp)) PdfWriter.Write(fs, pages, docTitle, producer);
+            File.Move(temp, path, overwrite: true);
+        });
+        return pages.Count;
+    }
+
     public async Task<int> ExportPdfAsync(string path, PrintOptions o, string title, string producer)
     {
         if (ExportBounds is not { } content) throw new InvalidOperationException("Mapa jest pusta — nie ma czego eksportować.");

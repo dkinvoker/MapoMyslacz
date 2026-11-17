@@ -67,13 +67,19 @@ public sealed partial class MainWindow : Window
         Map.ShowMinimap = _settings.ShowMinimap;
         Map.ShowGrid = _settings.ShowGrid;
         ApplyChildrenAsArrows();
+        Map.SnapToGrid = _settings.SnapToGrid;
+        Map.SnapToNeighbors = _settings.SnapToNeighbors;
+        // kafelki przeciągnięte na zakładkę innego arkusza przechodzą na ten arkusz
+        Map.CanDropNodesOutside = p => SheetTabAt(p) >= 0;
+        Map.NodesDraggedOutside += OnNodesDraggedOutside;
+        Map.NodesDroppedOutside += MoveNodesToSheet;
         Closed += (_, _) => Map.Shutdown();
         BuildStyleMenu();
         AddAccelerators();
         PanelToggle.IsChecked = _settings.ShowProperties;
         PropsPanel.Visibility = _settings.ShowProperties ? Visibility.Visible : Visibility.Collapsed;
         StatusText.Text = DefaultHint;
-        LoadDocument(OpenAtStartup(openPath) ?? new MapDocument());
+        LoadDocument(OpenAtStartup(openPath) ?? NewDocument());
     }
 
     private string? _startupError;
@@ -92,9 +98,9 @@ public sealed partial class MainWindow : Window
             }
             if (IsOutlineFile(path))
             {
-                var outline = MarkdownOutline.Parse(File.ReadAllText(path, System.Text.Encoding.UTF8));
-                outline.Title ??= Path.GetFileNameWithoutExtension(path);
-                var imported = MapDocument.FromMaps([outline]);
+                var outline = MarkdownOutline.ParseSheets(File.ReadAllText(path, System.Text.Encoding.UTF8));
+                if (outline.Count == 1) outline[0].Title ??= Path.GetFileNameWithoutExtension(path);
+                var imported = MapDocument.FromMaps(outline);
                 imported.MarkDirty();
                 return imported;
             }
@@ -208,7 +214,8 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.Left, VirtualKeyModifiers.Menu, () => _ = GoBackAsync());
         Add(VirtualKey.F1, VirtualKeyModifiers.None, () => _ = ShowHelpAsync());
         Add((VirtualKey)188, VirtualKeyModifiers.Control, () => _ = ShowOptionsAsync()); // Ctrl+,
-        Add(VirtualKey.F, VirtualKeyModifiers.Control, OpenSearch);
+        Add(VirtualKey.F, VirtualKeyModifiers.Control, () => OpenSearch());
+        Add(VirtualKey.H, VirtualKeyModifiers.Control, () => OpenSearch(replace: true));
         Add(VirtualKey.F3, VirtualKeyModifiers.None, () => StepSearch(1));
         Add(VirtualKey.F3, VirtualKeyModifiers.Shift, () => StepSearch(-1));
         Add(VirtualKey.F, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, Map.ToggleFocus);
@@ -456,6 +463,7 @@ public sealed partial class MainWindow : Window
 
     private void FileMenu_Opening(object sender, object e)
     {
+        HistoryMenuItem.IsEnabled = _document.FilePath is not null;
         RecentMenu.Items.Clear();
         var recent = _settings.RecentFiles.Where(File.Exists).ToList();
         if (recent.Count == 0)
@@ -541,8 +549,10 @@ public sealed partial class MainWindow : Window
         L("Ctrl+T — nowy arkusz · Ctrl+PageDown / Ctrl+PageUp — następny / poprzedni arkusz (prawy przycisk na zakładce — nazwa, kopia, usuwanie)\n");
         H("Duże mapy");
         L("Ctrl+F — szukaj w tekstach i notatkach (bez wielkości liter i polskich znaków) · Enter / F3 — następny, Shift+Enter / Shift+F3 — poprzedni");
+        L("Ctrl+H — zamień: Enter — w bieżącym wyniku, Ctrl+Enter — we wszystkich · w pliku z arkuszami szuka też na innych zakładkach");
         L("Ctrl+Shift+F — pokaż tylko zaznaczoną gałąź i jej powiązania (Esc — cała mapa)");
         L("Ctrl+G — otocz zaznaczone kafelki ramką; ramkę przesuwa się za nagłówek, dwuklik na nim — nazwa");
+        L("Kafelek upuszczony w ramce dołącza do niej · upuszczony na zakładce innego arkusza przechodzi tam (z gałęzią)");
         L("Kilka zaznaczonych kafelków: prawy przycisk → Wyrównaj (krawędzie, środki, równe odstępy)");
         L("Widok (ikona oka): minimapa, siatka kropek\n");
         H("Znaczniki i linki");
@@ -555,9 +565,10 @@ public sealed partial class MainWindow : Window
         H("Obrazki i wygląd");
         L("Obrazek w kafelku: Ctrl+V (obrazek ze schowka), przeciągnięcie pliku na kafelek albo panel → Obrazek → „Wstaw…”; na puste miejsce — nowy kafelek z obrazkiem");
         L("Obrazki zapisują się w pliku mapy (duże zdjęcia są zmniejszane do 1600 px) — mapa zostaje jednym plikiem");
-        L("Klik w puste miejsce → panel mapy → Motyw: kolory całej mapy i styl strzałek jednym kliknięciem; „Ujednolić z motywem…” zdejmuje własne kolory\n");
+        L("Klik w puste miejsce → panel mapy → Motyw: kolory całej mapy, styl strzałek i kształt gałęzi (łuki, proste, łamane); „Ujednolić z motywem…” zdejmuje własne kolory\n");
         H("Pliki");
-        L("Autozapis co minutę — po awarii program przy starcie zaproponuje przywrócenie niezapisanych zmian");
+        L("Autozapis (co minutę — zmiana w Opcjach) — po awarii program przy starcie zaproponuje przywrócenie niezapisanych zmian");
+        L("Plik → Historia wersji… — poprzednie wersje zapisanej mapy (z każdego zapisu, najwyżej co 5 minut) i powrót do nich");
         L("Plik → Eksportuj / Importuj → konspekt (Markdown) — notatki, wiki, Obsidian; .md i .txt można też upuścić na okno");
         L("Menu „?” → Opcje… (Ctrl+,) — m.in. czy Tab, Enter i kółko „+” tworzą gałąź drzewa, czy kafelek połączony strzałką");
         L("Styl → „Zapisz styl zaznaczonego kafelka jako mój” — własne gotowe style we wszystkich mapach");

@@ -18,7 +18,7 @@ public sealed partial class MainWindow
     private async Task ShowOptionsAsync()
     {
         CommitAllEdits();
-        var panel = new StackPanel { Spacing = 6, MinWidth = 420 };
+        var panel = new StackPanel { Spacing = 6, MinWidth = 420, Padding = new Thickness(0, 0, 18, 0) }; // odstęp od paska przewijania
         TextBlock Title(string text) => new()
         {
             Text = text,
@@ -47,6 +47,49 @@ public sealed partial class MainWindow
         panel.Children.Add(Note("Gałąź: kafelek staje się dzieckiem — przesuwa się z rodzicem, zwija się z nim i układa przez „Uporządkuj”. " +
                                 "Strzałka: kafelek jest swobodny, a połączenie to zwykła strzałka (grot, podpis, wyginanie, styl strzałek z motywu). " +
                                 "Gałąź da się później zamienić na strzałkę: prawy przycisk na niej → „Zamień na strzałkę”."));
+
+        panel.Children.Add(Title("Przeciąganie kafelków"));
+        var neighbors = new CheckBox { Content = "Przyciągaj do krawędzi i środków sąsiednich kafelków (linie pomocnicze)", IsChecked = _settings.SnapToNeighbors };
+        neighbors.Click += (_, _) =>
+        {
+            _settings.SnapToNeighbors = Map.SnapToNeighbors = neighbors.IsChecked == true;
+            _settings.Save();
+        };
+        var snapGrid = new CheckBox { Content = "Przyciągaj do kropek siatki, gdy siatka jest widoczna", IsChecked = _settings.SnapToGrid };
+        AutomationProperties.SetAutomationId(snapGrid, "OptionSnapToGrid");
+        snapGrid.Click += (_, _) =>
+        {
+            _settings.SnapToGrid = Map.SnapToGrid = snapGrid.IsChecked == true;
+            _settings.Save();
+        };
+        panel.Children.Add(neighbors);
+        panel.Children.Add(snapGrid);
+        panel.Children.Add(Note("Ctrl w trakcie przeciągania wyłącza przyciąganie. Upuszczenie kafelka w ramce dodaje go do niej, a na zakładce innego arkusza — przenosi go tam."));
+
+        panel.Children.Add(Title("Nowe mapy i autozapis"));
+        var theme = new ComboBox { Header = "Motyw nowych map", MinWidth = 240 };
+        foreach (var t in Core.Model.MapThemes.All) theme.Items.Add(t.Name);
+        theme.SelectedIndex = Math.Max(0, Core.Model.MapThemes.All.ToList().FindIndex(t => t.Id == (_settings.NewMapTheme ?? Core.Model.MapThemes.Default.Id)));
+        theme.SelectionChanged += (_, _) =>
+        {
+            if (theme.SelectedIndex < 0) return;
+            var id = Core.Model.MapThemes.All[theme.SelectedIndex].Id;
+            _settings.NewMapTheme = id == Core.Model.MapThemes.Default.Id ? null : id;
+            _settings.Save();
+        };
+        int[] minutes = [1, 2, 5, 10];
+        var autosave = new ComboBox { Header = "Autozapis niezapisanych zmian", MinWidth = 160 };
+        foreach (var m in minutes) autosave.Items.Add(m == 1 ? "co minutę" : $"co {m} minut{(m < 5 ? "y" : "")}");
+        autosave.SelectedIndex = Math.Max(0, Array.IndexOf(minutes, _settings.AutoSaveMinutes));
+        autosave.SelectionChanged += (_, _) =>
+        {
+            if (autosave.SelectedIndex < 0) return;
+            _settings.AutoSaveMinutes = minutes[autosave.SelectedIndex];
+            _settings.Save();
+            ApplyAutoSaveInterval();
+        };
+        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, Children = { theme, autosave } });
+        panel.Children.Add(Note("Autozapis chroni przed awarią (po niej program proponuje przywrócenie). Poprzednie wersje zapisanych map są w Plik → Historia wersji."));
 
         panel.Children.Add(Title("Widok"));
         var minimap = new CheckBox { Content = "Minimapa (gdy mapa nie mieści się w oknie)", IsChecked = _settings.ShowMinimap };

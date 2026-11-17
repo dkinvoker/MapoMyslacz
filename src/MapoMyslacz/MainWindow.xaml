@@ -80,6 +80,9 @@
                             <MenuFlyoutItem Text="Zapisz jako…" Click="SaveAs_Click" KeyboardAcceleratorTextOverride="Ctrl+Shift+S">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE792;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="HistoryMenuItem" Text="Historia wersji…" Click="History_Click">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE81C;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
                             <MenuFlyoutSeparator />
                             <MenuFlyoutSubItem x:Name="ImportMenu" Text="Importuj">
                                 <MenuFlyoutSubItem.Icon><FontIcon Glyph="&#xE8B5;" /></MenuFlyoutSubItem.Icon>
@@ -274,19 +277,35 @@
             <Border x:Name="SearchHost" VerticalAlignment="Top" HorizontalAlignment="Right" Margin="12" Padding="6,5"
                     Visibility="Collapsed" CornerRadius="8" BorderThickness="1"
                     Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
-                <StackPanel Orientation="Horizontal" Spacing="2">
-                    <TextBox x:Name="SearchBox" Width="230" PlaceholderText="Szukaj w kafelkach i notatkach"
-                             TextChanged="SearchBox_TextChanged" PreviewKeyDown="SearchBox_PreviewKeyDown" />
-                    <TextBlock x:Name="SearchCount" VerticalAlignment="Center" MinWidth="54" TextAlignment="Center" FontSize="12" Opacity="0.8" />
-                    <Button Style="{StaticResource ToolButton}" Click="SearchPrev_Click" ToolTipService.ToolTip="Poprzedni (Shift+Enter, Shift+F3)">
-                        <FontIcon Glyph="&#xE70E;" FontSize="13" />
-                    </Button>
-                    <Button Style="{StaticResource ToolButton}" Click="SearchNext_Click" ToolTipService.ToolTip="Następny (Enter, F3)">
-                        <FontIcon Glyph="&#xE70D;" FontSize="13" />
-                    </Button>
-                    <Button Style="{StaticResource ToolButton}" Click="SearchClose_Click" ToolTipService.ToolTip="Zamknij (Esc)">
-                        <FontIcon Glyph="&#xE711;" FontSize="12" />
-                    </Button>
+                <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                        <ToggleButton x:Name="ReplaceToggle" Background="Transparent" BorderBrush="Transparent" Padding="7,8"
+                                      Click="ReplaceToggle_Click" ToolTipService.ToolTip="Zamień (Ctrl+H)">
+                            <FontIcon Glyph="&#xE8AB;" FontSize="13" />
+                        </ToggleButton>
+                        <TextBox x:Name="SearchBox" Width="230" PlaceholderText="Szukaj w kafelkach i notatkach"
+                                 TextChanged="SearchBox_TextChanged" PreviewKeyDown="SearchBox_PreviewKeyDown" />
+                        <TextBlock x:Name="SearchCount" VerticalAlignment="Center" MinWidth="54" TextAlignment="Center" FontSize="12" Opacity="0.8" />
+                        <ToggleButton x:Name="AllSheetsToggle" Background="Transparent" BorderBrush="Transparent" Padding="7,8" IsChecked="True"
+                                      Visibility="Collapsed" Click="AllSheetsToggle_Click" ToolTipService.ToolTip="Szukaj we wszystkich arkuszach pliku">
+                            <FontIcon Glyph="&#xE8F1;" FontSize="13" />
+                        </ToggleButton>
+                        <Button Style="{StaticResource ToolButton}" Click="SearchPrev_Click" ToolTipService.ToolTip="Poprzedni (Shift+Enter, Shift+F3)">
+                            <FontIcon Glyph="&#xE70E;" FontSize="13" />
+                        </Button>
+                        <Button Style="{StaticResource ToolButton}" Click="SearchNext_Click" ToolTipService.ToolTip="Następny (Enter, F3)">
+                            <FontIcon Glyph="&#xE70D;" FontSize="13" />
+                        </Button>
+                        <Button Style="{StaticResource ToolButton}" Click="SearchClose_Click" ToolTipService.ToolTip="Zamknij (Esc)">
+                            <FontIcon Glyph="&#xE711;" FontSize="12" />
+                        </Button>
+                    </StackPanel>
+                    <!-- zamiana (Ctrl+H) -->
+                    <StackPanel x:Name="ReplaceRow" Orientation="Horizontal" Spacing="4" Margin="34,0,0,0" Visibility="Collapsed">
+                        <TextBox x:Name="ReplaceBox" Width="230" PlaceholderText="Zamień na" PreviewKeyDown="ReplaceBox_PreviewKeyDown" />
+                        <Button x:Name="ReplaceOneButton" Content="Zamień" Click="ReplaceOne_Click" ToolTipService.ToolTip="Zamień w bieżącym wyniku i przejdź do następnego (Enter)" />
+                        <Button x:Name="ReplaceAllButton" Content="Wszystko" Click="ReplaceAll_Click" ToolTipService.ToolTip="Zamień we wszystkich wynikach (Ctrl+Enter) — jeden krok cofania na arkusz" />
+                    </StackPanel>
                 </StackPanel>
             </Border>
 

@@ -1,3 +1,4 @@
+using MapoMyslacz.Core.Editing;
 using MapoMyslacz.Core.Model;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -15,6 +16,85 @@ public sealed partial class MainWindow
     private readonly List<ToggleButton> _sheetButtons = [];
 
     private int ActiveSheet => _document.Sheets.IndexOf(_session);
+
+    /// <summary>Nowa, pusta mapa — w motywie wybranym w opcjach („Motyw nowych map”).</summary>
+    private MapDocument NewDocument()
+    {
+        var doc = new MapDocument();
+        if (_settings.NewMapTheme is { } theme && MapThemes.Find(theme).Id == theme && theme != MapThemes.Default.Id)
+            doc.Sheets[0].Map.Theme = theme;
+        return doc;
+    }
+
+    // ================================================================== przenoszenie kafelków na inny arkusz
+
+    /// <summary>Zakładka innego arkusza pod punktem płótna (współrzędne płótna; −1 — żadna).</summary>
+    private int SheetTabAt(Windows.Foundation.Point canvasPoint)
+    {
+        int active = ActiveSheet;
+        for (int i = 0; i < _sheetButtons.Count; i++)
+        {
+            if (i == active) continue;
+            var tab = _sheetButtons[i];
+            var p = Map.TransformToVisual(tab).TransformPoint(canvasPoint);
+            if (p.X >= -4 && p.Y >= -6 && p.X <= tab.ActualWidth + 4 && p.Y <= tab.ActualHeight + 6) return i;
+        }
+        return -1;
+    }
+
+    private int _dropTab = -1;
+
+    /// <summary>Kafelki przeciągane poza płótnem — zakładka pod kursorem świeci, pasek stanu podpowiada.</summary>
+    private void OnNodesDraggedOutside(Windows.Foundation.Point? p)
+    {
+        int i = p is { } pt ? SheetTabAt(pt) : -1;
+        if (i != _dropTab)
+        {
+            if (_dropTab >= 0 && _dropTab < _sheetButtons.Count)
+            {
+                _sheetButtons[_dropTab].ClearValue(Control.BorderBrushProperty);
+                _sheetButtons[_dropTab].ClearValue(Control.BorderThicknessProperty);
+            }
+            _dropTab = i;
+            if (i >= 0)
+            {
+                _sheetButtons[i].BorderBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
+                _sheetButtons[i].BorderThickness = new Thickness(2);
+            }
+        }
+        StatusText.Text = p is null ? DefaultHint
+            : i >= 0 ? $"Puść — kafelki przejdą na arkusz „{_document.SheetName(i)}” (z gałęziami)"
+            : _document.Sheets.Count > 1 ? "Upuść na zakładce arkusza (na dole), żeby przenieść tam kafelki" : DefaultHint;
+    }
+
+    /// <summary>
+    /// Kafelki upuszczone na zakładce innego arkusza: przechodzą tam z gałęziami, w to samo miejsce i z tymi samymi
+    /// id (linki do nich dalej działają). Każdy arkusz zapisuje to jako swój krok cofania.
+    /// </summary>
+    private void MoveNodesToSheet(Windows.Foundation.Point p, IReadOnlyList<string> ids)
+    {
+        int target = SheetTabAt(p);
+        OnNodesDraggedOutside(null);
+        if (target < 0 || ids.Count == 0) return;
+        CommitAllEdits();
+        var from = _session;
+        var to = _document.Sheets[target];
+        List<Node> moved;
+        to.BeginBatch();
+        from.BeginBatch();
+        try
+        {
+            moved = MapOps.MoveToMap(from.Map, to.Map, ids);
+        }
+        finally
+        {
+            from.EndBatch();
+            to.EndBatch();
+        }
+        UpdateSheetTabLabels();
+        int n = moved.Count;
+        ShowToast($"Przeniesiono {n} {Plural(n, "kafelek", "kafelki", "kafelków")} na arkusz „{_document.SheetName(target)}” — Ctrl+Z cofa na każdym arkuszu osobno.");
+    }
 
     /// <summary>Przełącza na arkusz (widok bieżącego zostaje zapamiętany).</summary>
     private void ShowSheet(int index)

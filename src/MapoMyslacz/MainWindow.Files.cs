@@ -116,7 +116,7 @@ public sealed partial class MainWindow
     private async Task NewAsync()
     {
         if (!await ConfirmDiscardAsync()) return;
-        LoadDocument(new MapDocument());
+        LoadDocument(NewDocument());
         ClearBackStack();
     }
 
@@ -163,29 +163,37 @@ public sealed partial class MainWindow
         if (await PickOpenAsync(".md", ".txt", ".markdown") is { } path) await OpenFileAsync(path, confirm: false);
     }
 
-    /// <summary>Konspekt (Markdown albo tekst z wcięciami) jako nowa, jeszcze niezapisana mapa.</summary>
+    /// <summary>
+    /// Konspekt (Markdown albo tekst z wcięciami) jako nowa, jeszcze niezapisana mapa. Konspekt z kilkoma nagłówkami
+    /// „#” (np. eksport wszystkich arkuszy) — arkusz na każdy nagłówek.
+    /// </summary>
     private bool ImportOutlineFile(string path)
     {
-        var map = MarkdownOutline.Parse(File.ReadAllText(path, System.Text.Encoding.UTF8));
-        if (map.Nodes.Count == 0) throw new InvalidDataException("Plik nie zawiera żadnych punktów konspektu.");
-        map.Title ??= Path.GetFileNameWithoutExtension(path);
-        var session = new MapSession(map);
-        session.MarkDirty();
-        LoadSession(session);
+        var maps = MarkdownOutline.ParseSheets(File.ReadAllText(path, System.Text.Encoding.UTF8));
+        int count = maps.Sum(m => m.Nodes.Count);
+        if (count == 0) throw new InvalidDataException("Plik nie zawiera żadnych punktów konspektu.");
+        if (maps.Count == 1) maps[0].Title ??= Path.GetFileNameWithoutExtension(path);
+        var doc = MapDocument.FromMaps(maps);
+        doc.MarkDirty();
+        LoadDocument(doc);
         ClearBackStack();
-        ShowToast($"Zaimportowano konspekt ({map.Nodes.Count} {Plural(map.Nodes.Count, "kafelek", "kafelki", "kafelków")}) — zapisz go (Ctrl+S) jako mapę .mapo.", InfoBarSeverity.Informational);
+        var sheets = maps.Count > 1 ? $", {maps.Count} arkusze" : "";
+        ShowToast($"Zaimportowano konspekt ({count} {Plural(count, "kafelek", "kafelki", "kafelków")}{sheets}) — zapisz go (Ctrl+S) jako mapę .mapo.", InfoBarSeverity.Informational);
         return true;
     }
 
     private async Task ExportMarkdownAsync()
     {
         CommitAllEdits();
-        var path = await PickSaveAsync(SafeFileName(_session.Map.Title ?? _session.DisplayName), "Konspekt Markdown", ".md");
+        var path = await PickSaveAsync(SafeFileName(_document.Sheets[0].Map.Title ?? _document.DisplayName), "Konspekt Markdown", ".md");
         if (path is null) return;
         try
         {
-            File.WriteAllText(path, MarkdownOutline.Write(_session.Map), new System.Text.UTF8Encoding(false));
-            ShowToast($"Zapisano konspekt: {Path.GetFileName(path)}");
+            // wszystkie arkusze: każdy pod nagłówkiem „#” ze swoją nazwą (import odtworzy z nich arkusze)
+            var sheets = _document.Sheets.Select((s, i) => (_document.SheetName(i), s.Map)).ToList();
+            File.WriteAllText(path, MarkdownOutline.WriteSheets(sheets), new System.Text.UTF8Encoding(false));
+            var all = sheets.Count > 1 ? $" (wszystkie arkusze: {sheets.Count})" : "";
+            ShowToast($"Zapisano konspekt: {Path.GetFileName(path)}{all}");
         }
         catch (Exception ex)
         {
@@ -234,6 +242,7 @@ public sealed partial class MainWindow
         try
         {
             bool moved = _document.FilePath != path;
+            BackupBeforeSave(path); // poprzednia wersja pliku — do historii wersji
             _document.Save(path, ViewOf);
             _settings.AddRecent(path);
             UpdateTitle();
@@ -282,7 +291,11 @@ public sealed partial class MainWindow
                 LoadDocument(MapDocument.Open(input));
             }
             await Task.Delay(150);
-            if (pdf) await Map.ExportPdfAsync(Path.GetFullPath(output), _settings.Print.Clone(), MapTitle, AppInfo.FullName);
+            // PDF pliku z arkuszami — wszystkie arkusze (każdy od nowej strony); PNG — pierwszy arkusz
+            if (pdf && _document.Sheets.Count > 1)
+                await Map.ExportPdfAsync(Path.GetFullPath(output), _settings.Print.Clone(),
+                    _document.Sheets.Select((s, i) => (s.Map, s.Index, _document.SheetName(i))).ToList(), AppInfo.FullName);
+            else if (pdf) await Map.ExportPdfAsync(Path.GetFullPath(output), _settings.Print.Clone(), MapTitle, AppInfo.FullName);
             else await Map.ExportPngAsync(Path.GetFullPath(output), scale);
             return 0;
         }

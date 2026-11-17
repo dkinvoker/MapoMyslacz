@@ -269,9 +269,15 @@ public sealed partial class MapCanvas
                     lockX = !lockY;
                     d = lockY ? new Vec(d.X, 0) : new Vec(0, d.Y);
                 }
-                // przyciąganie do krawędzi i środków sąsiadów (Ctrl — bez przyciągania)
+                // przyciąganie: do kropek siatki (gdy ją widać), albo do krawędzi i środków sąsiadów (Ctrl — bez)
                 if (e.KeyModifiers.HasFlag(VirtualKeyModifiers.Control)) _guides.Clear();
-                else d = Snap(d, lockX, lockY);
+                else if (ShowGrid && SnapToGrid && _grabBox0.Width > 0)
+                {
+                    _guides.Clear();
+                    d = SnapToGridDelta(d, lockX, lockY);
+                }
+                else if (SnapToNeighbors) d = Snap(d, lockX, lockY);
+                else _guides.Clear();
                 var idx = _session.Index;
                 foreach (var id in _moving)
                 {
@@ -280,6 +286,8 @@ public sealed partial class MapCanvas
                     n.X = Math.Round(o.X + d.X);
                     n.Y = Math.Round(o.Y + d.Y);
                 }
+                UpdateFrameDrop(w);
+                UpdateDragOutside(pos);
                 RefreshGeometry(_moving);
                 break;
 
@@ -335,6 +343,10 @@ public sealed partial class MapCanvas
                 _grabBox0 = _pressHit.Kind == HitKind.Node && _nodes.TryGetValue(_pressHit.Id!, out var grabbed) ? grabbed.Bounds : default;
                 var near = VisibleWorld.Inflate(Math.Max(VisibleWorld.Width, VisibleWorld.Height));
                 _snapTargets = _scene.NodeOrder.Where(v => !_moving.Contains(v.Id) && v.Bounds.Intersects(near)).Select(v => v.Bounds).ToList();
+                // ramki, do których można upuścić kafelki: te bez przesuwanych kafelków (ich prostokąt stoi w miejscu)
+                _frameDropCandidates = _pressHit.Kind == HitKind.Node
+                    ? _scene.Frames.Where(f => !f.Members.Any(_moving.Contains)).Select(f => (f.Id, f.Box)).ToList()
+                    : [];
                 PrepareDragCache(_moving);
                 SetCursor(MoveCursor);
                 UpdateOverlay();
@@ -464,6 +476,73 @@ public sealed partial class MapCanvas
         return d;
     }
 
+    // ================================================================== siatka, ramki, upuszczanie poza płótnem
+
+    /// <summary>Przyciąganie środka kafelka do kropek siatki (gdy siatka jest widoczna) — z opcji.</summary>
+    public bool SnapToGrid { get; set; } = true;
+
+    /// <summary>Przyciąganie do krawędzi i środków sąsiednich kafelków (linie pomocnicze) — z opcji.</summary>
+    public bool SnapToNeighbors { get; set; } = true;
+
+    private Vec SnapToGridDelta(Vec d, bool lockX, bool lockY)
+    {
+        var c = _grabBox0.Center + d;
+        double tx = lockX ? c.X : Math.Round(c.X / GridSpacing) * GridSpacing;
+        double ty = lockY ? c.Y : Math.Round(c.Y / GridSpacing) * GridSpacing;
+        return new Vec(d.X + tx - c.X, d.Y + ty - c.Y);
+    }
+
+    private List<(string Id, Box Box)> _frameDropCandidates = [];
+    private string? _frameDrop;
+    private Box? _frameDropBox;
+
+    /// <summary>Przeciągane kafelki nad cudzą ramką — po puszczeniu trafią do niej (ramka podświetlona).</summary>
+    private void UpdateFrameDrop(Vec w)
+    {
+        if (_frameDropCandidates.Count == 0) return;
+        var hit = _frameDropCandidates.LastOrDefault(c => c.Box.Contains(w));
+        var id = hit.Id;
+        if (id == _frameDrop) return;
+        _frameDrop = id;
+        _frameDropBox = id is null ? null : hit.Box;
+        var title = id is null ? null : _session.FindFrame(id)?.Title;
+        HintChanged?.Invoke(id is null ? null : $"Puść — kafelek trafi do ramki „{(string.IsNullOrWhiteSpace(title) ? "bez nazwy" : title)}” (Ctrl+Z cofa)");
+    }
+
+    private bool _dragOutside;
+
+    /// <summary>Kafelki przeciągane poza płótno (punkt w układzie płótna) albo z powrotem nad nie (null).</summary>
+    public event Action<Point?>? NodesDraggedOutside;
+
+    /// <summary>Czy okno przyjmie kafelki upuszczone w tym punkcie poza płótnem (np. na zakładkę innego arkusza).</summary>
+    public Func<Point, bool>? CanDropNodesOutside;
+
+    /// <summary>Kafelki upuszczone poza płótnem — przesunięcie jest już cofnięte, okno je przejmuje.</summary>
+    public event Action<Point, IReadOnlyList<string>>? NodesDroppedOutside;
+
+    private void UpdateDragOutside(Point pos)
+    {
+        bool outside = pos.X < 0 || pos.Y < 0 || pos.X > ActualWidth || pos.Y > ActualHeight;
+        if (!outside && !_dragOutside) return;
+        _dragOutside = outside;
+        NodesDraggedOutside?.Invoke(outside ? pos : null);
+    }
+
+    /// <summary>Przesuwane kafelki „z wierzchu” (zaznaczone) — ich gałęzie idą razem z nimi.</summary>
+    private List<string> DraggedTopNodes() => _session.SelectedNodes.Where(_moving.Contains).ToList();
+
+    private void ResetDropTargets()
+    {
+        _frameDropCandidates = [];
+        _frameDrop = null;
+        _frameDropBox = null;
+        if (_dragOutside)
+        {
+            _dragOutside = false;
+            NodesDraggedOutside?.Invoke(null);
+        }
+    }
+
     private Point _marqueeEnd;
     private readonly HashSet<string> _marqueeHits = [];
 
@@ -494,6 +573,23 @@ public sealed partial class MapCanvas
                 _lastClickPos = _pressScreen;
                 OnClick();
                 break;
+            case DragMode.MoveNodes when _dragOutside && CanDropNodesOutside?.Invoke(_lastScreen) == true:
+            {
+                // upuszczone poza płótnem (np. na zakładkę arkusza): przesunięcie się cofa, kafelki przejmuje okno
+                var ids = DraggedTopNodes();
+                _session.CancelBatch();
+                NodesDroppedOutside?.Invoke(_lastScreen, ids);
+                break;
+            }
+            case DragMode.MoveNodes when _frameDrop is { } frameId && _session.FindFrame(frameId) is { } frame:
+            {
+                // upuszczone w ramce: kafelki przechodzą do niej (z innych ramek wychodzą) — jeden krok cofania z przesunięciem
+                var top = DraggedTopNodes();
+                MapOps.RemoveFromFrames(_session.Map, top);
+                MapOps.AddToFrame(frame, top);
+                _session.EndBatch();
+                break;
+            }
             case DragMode.MoveNodes or DragMode.BendLink or DragMode.MoveHandle or DragMode.ResizeWidth:
                 _session.EndBatch();
                 break;
@@ -510,6 +606,7 @@ public sealed partial class MapCanvas
         _bendVia = null;
         _guides.Clear();
         _snapTargets = [];
+        ResetDropTargets();
         DropDragCache();
         HintChanged?.Invoke(null);
         UpdateOverlay();
@@ -523,6 +620,7 @@ public sealed partial class MapCanvas
         _drag = DragMode.None;
         _marqueeHits.Clear();
         _guides.Clear();
+        ResetDropTargets();
         DropDragCache();
         _connectPreview = null;
         _dropTarget = null;

@@ -4,7 +4,7 @@ Program do map myśli: kafelki, gałęzie i strzałki z podpisami na nieskończo
 do **Native AOT** (okno pojawia się w ułamku sekundy) i rozdawany jako **jeden plik `.exe`** — bez instalatora,
 z automatycznymi aktualizacjami z wydań na GitHubie.
 
-**Wersja 1.3.2** — co się zmieniało, opisuje [CHANGELOG.md](CHANGELOG.md), a pomysły na dalszy rozwój
+**Wersja 1.4** — co się zmieniało, opisuje [CHANGELOG.md](CHANGELOG.md), a pomysły na dalszy rozwój
 [Developement.md](Developement.md).
 
 ![Przykładowa mapa](docs/przewodnik.png)
@@ -31,10 +31,12 @@ z automatycznymi aktualizacjami z wydań na GitHubie.
   w „kampanię”) albo **konkretny kafelek** w tej lub innej mapie. Ctrl+klik albo klik w niebieski znaczek otwiera
   link, Alt+← wraca do poprzedniej mapy. Panel mapy pokazuje **linki zwrotne** — mapy z folderu, które prowadzą do tej.
 - **Arkusze**: kilka map w jednym pliku, z zakładkami pod płótnem (np. osobny arkusz na każdą sesję gry) — dodawanie
-  (Ctrl+T), zmiana nazwy, kopia, przestawianie, przełączanie Ctrl+PageUp/PageDown.
+  (Ctrl+T), zmiana nazwy, kopia, przestawianie, przełączanie Ctrl+PageUp/PageDown. Kafelki przeciągnięte na zakładkę
+  przechodzą na tamten arkusz; wyszukiwanie, zamiana, PDF i konspekt obejmują wszystkie arkusze naraz.
 - **Motywy map**: Domyślny, Pastelowy, Noc, Pergamin, Tablica, Schemat, Wysoki kontrast — kolory płótna, kafelków,
   tematu głównego i palety gałęzi jednym kliknięciem; osobno **styl strzałek** (przerywane, ciągłe, kropki, proste,
-  łamane, w kolorze gałęzi, dwustronne). Motyw uzupełnia tylko to, czego kafelek nie ustawia sam.
+  łamane, w kolorze gałęzi, dwustronne) i **kształt gałęzi** — łuki, proste albo łamane pod kątem prostym (drzewa
+  genealogiczne, schematy organizacyjne). Motyw uzupełnia tylko to, czego kafelek nie ustawia sam.
 - **Nieskończone płótno** rysowane przez **Win2D** (szybkie także przy tysiącach kafelków): przesuwanie
   przeciąganiem pustego miejsca, powiększanie kółkiem (5–400%), „pokaż całą mapę”, zaznaczanie prostokątem z Shift/Ctrl.
 - **Druk i PDF** z podglądem: cała mapa dopasowana do kartki A4 (A3, A5, Letter) albo podział na strony w skali
@@ -45,12 +47,15 @@ z automatycznymi aktualizacjami z wydań na GitHubie.
 - **Pliki `.mapo`** (czytelny JSON), skojarzone z programem — dwuklik w Eksploratorze otwiera mapę; ostatnio
   otwierane, przeciąganie plików na okno, zapis „bezpieczny” (przez plik tymczasowy).
 - **Import z XMind** (XMind 2020+/Zen): tematy, tematy swobodne z pozycjami, style, relacje z podpisami i krzywizną,
-  notatki, granice (jako ramki), wszystkie arkusze (jako zakładki). **Eksport do PNG** (w dwukrotnej rozdzielczości). **Konspekt Markdown** — eksport
-  i import (.md, .txt) z notatkami, linkami, znacznikami, strzałkami i ramkami.
-- **Ramki** wokół grup kafelków (Ctrl+G), wyrównywanie i rozkładanie zaznaczonych, linie pomocnicze przy
-  przeciąganiu, **wyszukiwanie** (Ctrl+F), **fokus na gałęzi** (Ctrl+Shift+F), **minimapa**, siatka kropek.
+  notatki, obrazki, granice (jako ramki), wszystkie arkusze (jako zakładki). **Eksport do PNG** (w dwukrotnej
+  rozdzielczości). **Konspekt Markdown** — eksport i import (.md, .txt) z notatkami, linkami, znacznikami, strzałkami,
+  ramkami i arkuszami.
+- **Ramki** wokół grup kafelków (Ctrl+G; kafelek upuszczony w ramce do niej dołącza), wyrównywanie i rozkładanie
+  zaznaczonych, linie pomocnicze i przyciąganie do siatki przy przeciąganiu, **wyszukiwanie i zamiana** (Ctrl+F,
+  Ctrl+H — bez wielkości liter i polskich znaków), **fokus na gałęzi** (Ctrl+Shift+F), **minimapa**, siatka kropek.
 - **Własne gotowe style** (Styl → „Zapisz styl zaznaczonego kafelka jako mój”) — dostępne we wszystkich mapach.
-- **Autozapis** co minutę i odzyskiwanie niezapisanej mapy po awarii.
+- **Autozapis** (co 1–10 minut) i odzyskiwanie niezapisanej mapy po awarii; **historia wersji** — przy każdym zapisie
+  poprzednia wersja trafia do historii (Plik → Historia wersji…), skąd można wrócić do mapy „z wczoraj”.
 - Jasny i ciemny wygląd okna zgodnie z Windows (tło płótna wynika z motywu mapy albo jest ustawione na stałe).
 
 ## Obsługa
@@ -67,6 +72,7 @@ z automatycznymi aktualizacjami z wydań na GitHubie.
 | przeciągnij plik obrazka na okno | na kafelek — obrazek w nim, na puste miejsce — nowy kafelek z obrazkiem |
 | zakładka arkusza (pod płótnem) | klik — przełącza, dwuklik/prawy przycisk — nazwa, kopia, przestawianie, usuwanie; „+” — nowy |
 | nagłówek ramki | przeciągnij — przesuwa całą grupę, dwuklik — nazwa |
+| kafelek upuszczony w ramce / na zakładce arkusza | dołącza do ramki / przechodzi na tamten arkusz (z gałęzią) |
 | minimapa (prawy dolny róg) | klik / przeciągnięcie — przejście w to miejsce mapy |
 | dwuklik | na kafelku — edycja tekstu, na strzałce — podpis, na pustym miejscu — nowy kafelek |
 | kółko **„+”** przy zaznaczonym kafelku | klik — dziecko; przeciągnij na kafelek — **strzałka**; na puste miejsce — dziecko tam |
@@ -84,7 +90,7 @@ z automatycznymi aktualizacjami z wydań na GitHubie.
 | Ctrl+C / X / V / D, Ctrl+A | kopiuj / wytnij / wklej (też obrazek ze schowka) / duplikuj, zaznacz wszystko |
 | Ctrl+L | połącz strzałką (dwa zaznaczone kafelki albo wskaż drugi kliknięciem) |
 | Ctrl+G | otocz zaznaczone kafelki ramką |
-| Ctrl+F, F3 / Shift+F3 | szukaj, następny / poprzedni wynik |
+| Ctrl+F, F3 / Shift+F3, Ctrl+H | szukaj, następny / poprzedni wynik, zamień (Enter — w bieżącym, Ctrl+Enter — wszędzie) |
 | Ctrl+Shift+F, Esc | pokaż tylko zaznaczoną gałąź i jej powiązania, wróć do całej mapy |
 | Ctrl+R, Ctrl+/ | uporządkuj gałęzie, zwiń/rozwiń |
 | Ctrl+B, Ctrl+I | pogrubienie, kursywa |
@@ -201,7 +207,8 @@ Zwykły JSON (UTF-8), który da się czytać i poprawiać w Notatniku. Zapisywan
 - **Motyw** (opcjonalne): `theme` — `domyslny`, `pastel`, `noc`, `pergamin`, `tablica`, `schemat`, `kontrast`;
   `arrowStyle` — styl strzałek niezależny od motywu: `przerywane`, `ciagle`, `kropki`, `proste`, `lamane`,
   `kolorowe` (w kolorze gałęzi kafelka początkowego), `dwustronne`. Motyw podaje wartości domyślne — to, co jest
-  zapisane w `style` kafelka albo strzałki, zawsze wygrywa.
+  zapisane w `style` kafelka albo strzałki, zawsze wygrywa. `branchCurve` — kształt gałęzi drzewa (`curved`,
+  `straight`, `elbow`; brak — z motywu).
 - **Obrazki** (opcjonalne): `images` — słownik `"img-…": "data:image/png;base64,…"` (PNG albo JPEG, osadzone w pliku);
   kafelek odwołuje się do obrazka polem `"image": { "id": "img-…", "width": 240, "height": 160 }` (rozmiar na mapie).
   Ten sam obrazek w kilku kafelkach zapisuje się raz. Starsze wersje programu pokazują sam tekst.
@@ -223,8 +230,8 @@ dotnet run --project tools/XmindConvert -- "Plansza ogólna.xmind" "Plansza Sesj
 ```
 
 Obsługiwany jest format XMind 2020+ (plik `content.json` w archiwum). Przenoszone są też znaczniki (priorytety,
-postęp, flagi, gwiazdki), linki, granice (jako ramki) i relacje łamane. Obrazki i podsumowania nie są przenoszone —
-informacja o obrazku trafia do notatki kafelka.
+postęp, flagi, gwiazdki), linki, obrazki (osadzone w mapie), granice (jako ramki) i relacje łamane. Podsumowania nie
+są przenoszone.
 
 ## Budowanie ze źródeł
 
@@ -279,8 +286,8 @@ Jedyne elementy XAML nad płótnem to pola edycji tekstu.
 
 | Folder | Zawartość |
 |---|---|
-| `src/MapoMyslacz` | aplikacja WinUI 3: okno, panel właściwości, płótno (`Editor/MapCanvas*.cs` — obsługa, minimapa, fokus, siatka, obrazki; `Editor/MapScene.cs` — rysowanie Win2D), wyszukiwarka, autozapis, arkusze i obrazki (`MainWindow.Search.cs`, `MainWindow.AutoSave.cs`, `MainWindow.Sheets.cs`, `MainWindow.Images.cs`), druk (`Services/PrintService.cs`), aktualizacje, skojarzenia |
-| `src/MapoMyslacz.Core` | logika bez interfejsu: model i format `.mapo` (też obrazki i arkusze — `MapDocument`), operacje (też wyrównywanie i ramki), historia cofania i autozapis, motywy (`MapThemes`), geometria strzałek (także łamanych), układ, style, wyszukiwanie, znaczniki, linki i linki zwrotne, konspekt Markdown, rozkład stron i zapis PDF (`Export/`), import XMind, logika aktualizacji |
+| `src/MapoMyslacz` | aplikacja WinUI 3: okno, panel właściwości, płótno (`Editor/MapCanvas*.cs` — obsługa, minimapa, fokus, siatka, obrazki; `Editor/MapScene.cs` — rysowanie Win2D), wyszukiwarka, autozapis, arkusze i obrazki (`MainWindow.Search.cs`, `MainWindow.AutoSave.cs`, `MainWindow.Sheets.cs`, `MainWindow.Images.cs`, `MainWindow.History.cs`, `MainWindow.Options.cs`), druk (`Services/PrintService.cs`), aktualizacje, skojarzenia |
+| `src/MapoMyslacz.Core` | logika bez interfejsu: model i format `.mapo` (też obrazki i arkusze — `MapDocument`), operacje (też wyrównywanie i ramki), historia cofania, autozapis i historia wersji (`MapHistory`), motywy (`MapThemes`), geometria strzałek (także łamanych), układ, style, wyszukiwanie, znaczniki, linki i linki zwrotne, konspekt Markdown, rozkład stron i zapis PDF (`Export/`), import XMind, logika aktualizacji |
 | `src/MapoMyslacz.Launcher` | jednoplikowy starter: rozpakowanie, uruchomienie, skrypt odinstalowania |
 | `src/MapoMyslacz.Tests` | testy jednostkowe (xUnit) |
 | `src/MapoMyslacz.UiTests` | testy interfejsu (FlaUI / UI Automation) — sterują prawdziwą aplikacją myszą i klawiaturą |
@@ -293,8 +300,9 @@ Jedyne elementy XAML nad płótnem to pola edycji tekstu.
 dotnet test src/MapoMyslacz.Tests
 ```
 
-175 testów: format pliku i naprawa uszkodzonych map, operacje edycyjne i schowek, historia cofania (też łączenie
-kroków przy pisaniu w panelu) i autozapis, kafelki połączone strzałką zamiast gałęzi, geometria
+195 testów: format pliku i naprawa uszkodzonych map, operacje edycyjne i schowek, historia cofania (też łączenie
+kroków przy pisaniu w panelu), autozapis i historia wersji, kafelki połączone strzałką zamiast gałęzi, wyszukiwanie
+i zamiana, przenoszenie kafelków między arkuszami, gałęzie łamane, obrazki z XMind, geometria
 (krawędzie kształtów, krzywe, łamane, wyginanie strzałek), automatyczny układ, wyrównywanie, ramki, wyszukiwanie,
 style, kolory i motywy, gałęzie, obrazki, arkusze, import XMind, konspekt Markdown (eksport i import), znaczniki,
 linki do plików i kafelków, linki zwrotne, rozkład stron do druku i zapis PDF, logika aktualizacji, rozpakowywanie
@@ -302,7 +310,9 @@ startera i skrypt odinstalowania. Testy nie otwierają okna.
 
 **Testy interfejsu** uruchamiają zbudowaną aplikację i klikają w nią naprawdę (przeciąganie kafelka i cofnięcie,
 zaznaczanie prostokątem, Tab z wpisaniem tekstu, klik w gałąź, wyszukiwanie, ramka, nowy arkusz, pisanie w panelu
-właściwości i przejście do innego kafelka, okno opcji i kafelki ze strzałką — wynik sprawdzany w zapisanym pliku). Przejmują mysz i klawiaturę na kilkadziesiąt sekund, więc działają tylko na życzenie:
+właściwości i przejście do innego kafelka, okno opcji i kafelki ze strzałką, zamiana we wszystkich arkuszach,
+upuszczenie kafelka w ramce i na zakładce arkusza — wynik sprawdzany w zapisanym pliku). Przejmują mysz i klawiaturę
+na kilkadziesiąt sekund, więc działają tylko na życzenie:
 
 ```bash
 dotnet build src/MapoMyslacz

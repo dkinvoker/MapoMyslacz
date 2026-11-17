@@ -31,6 +31,18 @@ public sealed class AppSettings
     /// </summary>
     public bool ChildrenAsArrows { get; set; }
 
+    /// <summary>Przyciąganie przeciąganego kafelka do krawędzi i środków sąsiadów (linie pomocnicze).</summary>
+    public bool SnapToNeighbors { get; set; } = true;
+
+    /// <summary>Przyciąganie środka kafelka do kropek siatki, gdy siatka jest widoczna.</summary>
+    public bool SnapToGrid { get; set; } = true;
+
+    /// <summary>Co ile minut niezapisane zmiany trafiają do autozapisu.</summary>
+    public int AutoSaveMinutes { get; set; } = 1;
+
+    /// <summary>Motyw nowych map (id z MapThemes; brak — domyślny).</summary>
+    public string? NewMapTheme { get; set; }
+
     /// <summary>Własne gotowe style („Zapisz styl zaznaczonego kafelka”) — dostępne we wszystkich mapach.</summary>
     public List<CustomStyle> CustomStyles { get; set; } = [];
 

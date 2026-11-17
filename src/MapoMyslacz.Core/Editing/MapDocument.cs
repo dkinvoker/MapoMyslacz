@@ -93,6 +93,14 @@ public sealed class MapDocument
     {
         var map = MapSession.CreateDefault();
         map.Title = title ?? $"Arkusz {Sheets.Count + 1}";
+        // nowy arkusz wygląda jak ten, obok którego powstaje (motyw, strzałki, gałęzie, tło)
+        if (after >= 0 && after < Sheets.Count && Sheets[after].Map is { } like)
+        {
+            map.Theme = like.Theme;
+            map.ArrowStyle = like.ArrowStyle;
+            map.BranchCurve = like.BranchCurve;
+            map.Background = like.Background;
+        }
         int at = Math.Clamp(after + 1, 0, Sheets.Count);
         Sheets.Insert(at, new MapSession(map, FilePath, Images));
         Changed();

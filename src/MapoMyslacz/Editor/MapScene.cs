@@ -104,7 +104,7 @@ internal sealed class BranchView
 {
     public required string ChildId;
     public required string ParentId;
-    public Cubic Curve;
+    public Cubic[] Curves = [];
     public Rgba Color;
     public double Width;
     public Box Bounds;
@@ -182,6 +182,7 @@ internal sealed class MapScene : IDisposable
         _imageStore = map.Images;
         _theme = MapThemes.Find(map.Theme);
         _linkTheme = MapThemes.LinksFor(map);
+        _branchCurve = MapThemes.BranchCurveFor(map);
         _usedText.Clear();
         var visible = new HashSet<string>();
         NodeOrder.Clear();
@@ -410,15 +411,18 @@ internal sealed class MapScene : IDisposable
             if (fv.Members.Any(moved.Contains)) LayoutFrame(fv);
     }
 
-    private static void SetBranchCurve(BranchView b, NodeView parent, NodeView child)
+    /// <summary>Kształt gałęzi (łuk, prosta, łamana) — z mapy albo z motywu.</summary>
+    private LinkCurve _branchCurve;
+
+    private void SetBranchCurve(BranchView b, NodeView parent, NodeView child)
     {
-        var curve = LinkRouting.Branch(parent.Outline, child.Outline);
-        if (b.Geometry is not null && curve == b.Curve) return;
-        b.Curve = curve;
+        var curves = LinkRouting.BranchPath(parent.Outline, child.Outline, _branchCurve).ToArray();
+        if (b.Geometry is not null && curves.AsSpan().SequenceEqual(b.Curves)) return;
+        b.Curves = curves;
         b.Geometry?.Dispose();
         b.Stroke.Reset();
-        b.Geometry = PathGeometry([curve]);
-        b.Bounds = Box.Union(curve.Flatten(8).Select(p => new Box(p.X, p.Y, 0, 0)))!.Value;
+        b.Geometry = PathGeometry(curves);
+        b.Bounds = Box.Union(curves.SelectMany(c => c.Flatten(8)).Select(p => new Box(p.X, p.Y, 0, 0)))!.Value;
     }
 
     public void UpdateLink(Link l, LinkView lv)
@@ -689,9 +693,13 @@ internal sealed class MapScene : IDisposable
         Span<Vec> pts = stackalloc Vec[7];
         foreach (var b in Branches)
         {
-            for (int i = 0; i < pts.Length; i++) pts[i] = b.Curve.PointAt(i / 6.0);
             var color = C(b.Color);
-            for (int i = 1; i < pts.Length; i++) ds.DrawLine(V2(pts[i - 1]), V2(pts[i]), color, 1.3f * px);
+            foreach (var curve in b.Curves)
+            {
+                int n = b.Curves.Length == 1 ? 7 : 2; // łamana: odcinki proste (narożniki na minimapie nie są potrzebne)
+                for (int i = 0; i < n; i++) pts[i] = curve.PointAt(i / (double)(n - 1));
+                for (int i = 1; i < n; i++) ds.DrawLine(V2(pts[i - 1]), V2(pts[i]), color, 1.3f * px);
+            }
         }
         foreach (var l in Links.Values)
         {

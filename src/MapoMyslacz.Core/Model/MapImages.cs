@@ -45,6 +45,45 @@ public static class MapImages
         return (Math.Round(w), Math.Max(1, Math.Round(w * pixelH / pixelW)));
     }
 
+    /// <summary>Typ obrazka z pierwszych bajtów (PNG, JPEG, GIF) — null, gdy to nie jest obsługiwany obrazek.</summary>
+    public static string? MediaTypeOf(ReadOnlySpan<byte> b) =>
+        b.Length >= 8 && b[0] == 0x89 && b[1] == (byte)'P' && b[2] == (byte)'N' && b[3] == (byte)'G' ? "image/png"
+        : b.Length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF ? "image/jpeg"
+        : b.Length >= 6 && b[0] == (byte)'G' && b[1] == (byte)'I' && b[2] == (byte)'F' ? "image/gif"
+        : null;
+
+    /// <summary>
+    /// Rozmiar w pikselach odczytany z nagłówka (PNG: IHDR, GIF: ekran logiczny, JPEG: znacznik SOF) — bez dekodowania
+    /// obrazka. (0, 0), gdy nagłówka nie da się odczytać.
+    /// </summary>
+    public static (int W, int H) PixelSize(ReadOnlySpan<byte> b)
+    {
+        switch (MediaTypeOf(b))
+        {
+            case "image/png" when b.Length >= 24:
+                return ((b[16] << 24) | (b[17] << 16) | (b[18] << 8) | b[19], (b[20] << 24) | (b[21] << 16) | (b[22] << 8) | b[23]);
+            case "image/gif" when b.Length >= 10:
+                return (b[6] | (b[7] << 8), b[8] | (b[9] << 8));
+            case "image/jpeg":
+                int i = 2;
+                while (i + 9 < b.Length)
+                {
+                    if (b[i] != 0xFF) { i++; continue; }
+                    byte marker = b[i + 1];
+                    if (marker == 0xFF) { i++; continue; }
+                    if (marker is 0xD8 or 0x01 or >= 0xD0 and <= 0xD7) { i += 2; continue; }
+                    int len = (b[i + 2] << 8) | b[i + 3];
+                    // SOF0–SOF15 bez DHT (C4), JPG (C8) i DAC (CC): wysokość, potem szerokość
+                    if (marker is >= 0xC0 and <= 0xCF and not 0xC4 and not 0xC8 and not 0xCC)
+                        return ((b[i + 7] << 8) | b[i + 8], (b[i + 5] << 8) | b[i + 6]);
+                    if (len < 2) break;
+                    i += 2 + len;
+                }
+                break;
+        }
+        return (0, 0);
+    }
+
     /// <summary>Wstawia obrazek do magazynu mapy i dołącza go do kafelka (zastępuje poprzedni).</summary>
     public static void Attach(MindMap map, Node node, string id, string dataUri, double width, double height)
     {

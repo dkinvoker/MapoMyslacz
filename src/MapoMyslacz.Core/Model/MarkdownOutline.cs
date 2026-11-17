@@ -15,11 +15,21 @@ public static partial class MarkdownOutline
 
     // ------------------------------------------------------------------ eksport
 
-    public static string Write(MindMap map)
+    /// <summary>
+    /// Kilka arkuszy w jednym konspekcie: każdy zaczyna się nagłówkiem „#” ze swoją nazwą (import takiego pliku
+    /// odtwarza arkusze — <see cref="ParseSheets"/>). Jeden arkusz — zwykły konspekt mapy.
+    /// </summary>
+    public static string WriteSheets(IReadOnlyList<(string Name, MindMap Map)> sheets)
+    {
+        if (sheets.Count == 1) return Write(sheets[0].Map);
+        return string.Join(Environment.NewLine, sheets.Select(s => Write(s.Map, s.Name)));
+    }
+
+    public static string Write(MindMap map, string? title = null)
     {
         var idx = new MapIndex(map);
         var sb = new StringBuilder();
-        sb.Append("# ").AppendLine(OneLine(map.Title is { Length: > 0 } t ? t : "Mapa")).AppendLine();
+        sb.Append("# ").AppendLine(OneLine(title is { Length: > 0 } ? title : map.Title is { Length: > 0 } t ? t : "Mapa")).AppendLine();
 
         void Note(Node n, string indent)
         {
@@ -111,6 +121,32 @@ public static partial class MarkdownOutline
 
     [GeneratedRegex(@"^(.+?) → (.+?)(?: \((.*)\))?$")]
     private static partial Regex ArrowRegex();
+
+    /// <summary>
+    /// Konspekt z kilkoma nagłówkami „#” (np. eksport wielu arkuszy) → arkusz na każdy z nich; inaczej jedna mapa
+    /// (<see cref="Parse"/>). Tekst przed pierwszym „#” też trafia do jednej mapy.
+    /// </summary>
+    public static List<MindMap> ParseSheets(string markdown)
+    {
+        var lines = markdown.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        var starts = new List<int>();
+        bool inCode = false;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var t = lines[i].Trim();
+            if (t.StartsWith("```", StringComparison.Ordinal)) inCode = !inCode;
+            else if (!inCode && HeadingRegex().Match(t) is { Success: true } m && m.Groups[1].Length == 1) starts.Add(i);
+        }
+        bool textBefore = starts.Count > 0 && lines.Take(starts[0]).Any(l => !string.IsNullOrWhiteSpace(l));
+        if (starts.Count < 2 || textBefore) return [Parse(markdown)];
+        var sheets = new List<MindMap>();
+        for (int k = 0; k < starts.Count; k++)
+        {
+            int end = k + 1 < starts.Count ? starts[k + 1] : lines.Length;
+            sheets.Add(Parse(string.Join("\n", lines[starts[k]..end])));
+        }
+        return sheets;
+    }
 
     /// <summary>Konspekt Markdown (albo zwykła lista z wcięciami) → nowa mapa ułożona w drzewa.</summary>
     public static MindMap Parse(string markdown)

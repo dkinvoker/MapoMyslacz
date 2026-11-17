@@ -365,15 +365,17 @@ public sealed partial class MapCanvas : Grid
 
     // ================================================================== budowanie sceny
 
+    /// <summary>Tło płótna mapy: własne, potem z motywu, a w motywie domyślnym — jasne albo ciemne jak Windows.</summary>
+    internal Rgba CanvasColorFor(MindMap map) =>
+        map.Background is { } bg && Rgba.TryParse(bg, out var c)
+            ? c
+            : MapThemes.Find(map.Theme).Canvas ?? (ActualTheme == ElementTheme.Dark ? Styles.DarkCanvasBackground : Styles.CanvasBackground);
+
     /// <summary>Synchronizuje scenę z mapą i odświeża rysunek.</summary>
     public void Rebuild()
     {
         var map = _session.Map;
-        bool dark = ActualTheme == ElementTheme.Dark;
-        // tło: własne mapy, potem motywu, a w motywie domyślnym — jasne albo ciemne jak Windows
-        _canvasColor = map.Background is { } bg && Rgba.TryParse(bg, out var c)
-            ? c
-            : MapThemes.Find(map.Theme).Canvas ?? (dark ? Styles.DarkCanvasBackground : Styles.CanvasBackground);
+        _canvasColor = CanvasColorFor(map);
         _scene.EditingId = _editNodeId;
         _scene.Build(map, _session.Index, _canvasColor);
         _sceneVersion++;
@@ -628,6 +630,13 @@ public sealed partial class MapCanvas : Grid
             foreach (var (a, b) in _guides) ds.DrawLine(V2(a), V2(b), guide, px);
         }
 
+        // ramka, do której trafią upuszczone kafelki
+        if (_frameDropBox is { } fb)
+        {
+            ds.FillRoundedRectangle(R(fb), 10 * px, 10 * px, C(Accent.WithAlpha(30)));
+            Outline(ds, fb.Inflate(2 * px), accent, px, 10);
+        }
+
         // kółko „+”: klik — dziecko, przeciągnięcie — strzałka
         if (_connectHandle is { } ch)
         {
@@ -707,11 +716,14 @@ public sealed partial class MapCanvas : Grid
         {
             double tol = Math.Max(6 * px, b.Width / 2 + 3 * px);
             if (b.Geometry is null || !b.Bounds.Inflate(tol).Contains(w)) continue;
-            Vec? prev = null;
-            foreach (var q in b.Curve.Flatten(16))
+            foreach (var curve in b.Curves)
             {
-                if (prev is { } pq && GeometryMath.DistanceToSegment(w, pq, q) <= tol) return new Hit(HitKind.Branch, b.ChildId);
-                prev = q;
+                Vec? prev = null;
+                foreach (var q in curve.Flatten(16))
+                {
+                    if (prev is { } pq && GeometryMath.DistanceToSegment(w, pq, q) <= tol) return new Hit(HitKind.Branch, b.ChildId);
+                    prev = q;
+                }
             }
         }
         // ramki łapie się za nagłówek albo krawędź — wnętrze to zwykłe płótno (przesuwanie, zaznaczanie)

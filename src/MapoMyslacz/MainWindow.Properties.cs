@@ -387,6 +387,24 @@ public sealed partial class MainWindow
         });
         Add(arrows);
 
+        Add(Caption("Gałęzie drzewa"));
+        var branches = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        AutomationProperties.SetAutomationId(branches, "BranchShape");
+        LinkCurve?[] shapes = [null, LinkCurve.Curved, LinkCurve.Straight, LinkCurve.Elbow];
+        foreach (var name in new[] { "Jak w motywie", "Łuki", "Proste", "Łamane — pod kątem prostym (drzewo genealogiczne, schemat)" })
+            branches.Items.Add(name);
+        ToolTipService.SetToolTip(branches, "Kształt linii od rodzica do dzieci. Łamane: dzieci w jednej kolumnie dzielą wspólny pionowy pień.");
+        branches.SelectionChanged += (_, _) =>
+        {
+            if (_refreshing || branches.SelectedIndex < 0) return;
+            var shape = shapes[branches.SelectedIndex];
+            if (shape == _session.Map.BranchCurve) return;
+            Map.CommitEdit();
+            _session.Edit(m => m.BranchCurve = shape);
+        };
+        Refreshers.Add(() => branches.SelectedIndex = Array.IndexOf(shapes, _session.Map.BranchCurve));
+        Add(branches);
+
         var unify = new Button { Content = "Ujednolić z motywem…", Margin = new Thickness(0, 6, 0, 0) };
         ToolTipService.SetToolTip(unify, "Usuwa własne kolory kafelków i strzałek, żeby cała mapa miała kolory motywu (Ctrl+Z cofa)");
         unify.Click += (_, _) => _ = UnifyWithThemeAsync();

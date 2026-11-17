@@ -45,11 +45,22 @@ public static partial class XmindImporter
                     ? "To mapa ze starego XMind 8 (content.xml) — otwórz ją w nowym XMind i zapisz ponownie."
                     : "W pliku XMind brakuje content.json.");
             using var reader = new StreamReader(entry.Open(), Encoding.UTF8);
-            return ImportContentJson(reader.ReadToEnd());
+            var json = reader.ReadToEnd();
+            // obrazki tematów leżą w archiwum jako „resources/…” (w content.json: „xap:resources/…”)
+            byte[]? Resource(string src)
+            {
+                var name = src.StartsWith("xap:", StringComparison.OrdinalIgnoreCase) ? src[4..] : src;
+                if (zip.GetEntry(name.TrimStart('/')) is not { Length: > 0 and < 50_000_000 } e) return null;
+                using var s = e.Open();
+                using var ms = new MemoryStream((int)e.Length);
+                s.CopyTo(ms);
+                return ms.ToArray();
+            }
+            return ImportContentJson(json, Resource);
         }
     }
 
-    public static IReadOnlyList<MindMap> ImportContentJson(string json)
+    public static IReadOnlyList<MindMap> ImportContentJson(string json, Func<string, byte[]?>? resource = null)
     {
         using var doc = JsonDocument.Parse(json);
         var sheets = doc.RootElement.ValueKind == JsonValueKind.Array ? doc.RootElement.EnumerateArray().ToList() : [doc.RootElement];
@@ -57,7 +68,7 @@ public static partial class XmindImporter
         foreach (var sheet in sheets)
         {
             if (sheet.ValueKind != JsonValueKind.Object || !sheet.TryGetProperty("rootTopic", out var root)) continue;
-            result.Add(ImportSheet(sheet, root));
+            result.Add(ImportSheet(sheet, root, resource));
         }
         if (result.Count == 0) throw new InvalidDataException("Plik XMind nie zawiera żadnego arkusza.");
         return result;
@@ -69,12 +80,13 @@ public static partial class XmindImporter
     {
         public required Dictionary<string, Dictionary<string, string>> Theme;
         public required MindMap Map;
+        public Func<string, byte[]?>? Resource;
         public readonly List<string> NeedLayout = [];
     }
 
-    private static MindMap ImportSheet(JsonElement sheet, JsonElement root)
+    private static MindMap ImportSheet(JsonElement sheet, JsonElement root, Func<string, byte[]?>? resource)
     {
-        var ctx = new Ctx { Theme = ReadTheme(sheet), Map = new MindMap() };
+        var ctx = new Ctx { Theme = ReadTheme(sheet), Map = new MindMap(), Resource = resource };
         var map = ctx.Map;
         // domyślne nazwy arkuszy („Mind Map”, „Arkusz 1”…) nic nie mówią — wtedy tytuł weźmie się z nazwy pliku
         var sheetTitle = Str(sheet, "title");
@@ -113,7 +125,8 @@ public static partial class XmindImporter
             node.Y = Math.Round(Num(pos, "y"), 1);
         }
         node.Style = ConvertTopicStyle(ctx, topic, baseClass, isRoot);
-        node.Note = NoteOf(topic);
+        bool imageLost = topic.TryGetProperty("image", out var image) && !AttachImage(ctx, node, image);
+        node.Note = NoteOf(topic, imageLost);
         if (Str(topic, "href") is { Length: > 0 } href && !href.StartsWith("xmind:", StringComparison.OrdinalIgnoreCase))
             node.Link = href;
         if (topic.TryGetProperty("markers", out var markers) && markers.ValueKind == JsonValueKind.Array)
@@ -189,7 +202,7 @@ public static partial class XmindImporter
 
     private static string Clean(string s) => s.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
 
-    private static string? NoteOf(JsonElement topic)
+    private static string? NoteOf(JsonElement topic, bool imageLost)
     {
         var parts = new List<string>();
         if (topic.TryGetProperty("notes", out var notes) && notes.TryGetProperty("plain", out var plain)
@@ -200,8 +213,35 @@ public static partial class XmindImporter
             var l = labels.EnumerateArray().Select(x => x.GetString()).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
             if (l.Count > 0) parts.Add("Etykiety: " + string.Join(", ", l));
         }
-        if (topic.TryGetProperty("image", out _)) parts.Add("(W XMind był tu obrazek — nie został przeniesiony.)");
+        if (imageLost) parts.Add("(W XMind był tu obrazek — nie udało się go przenieść.)");
         return parts.Count > 0 ? string.Join("\n\n", parts) : null;
+    }
+
+    /// <summary>
+    /// Obrazek tematu („image”: { "src": "xap:resources/….png", "width", "height" }) → obrazek kafelka osadzony w mapie.
+    /// Rozmiar z XMind, a gdy go nie ma — z nagłówka obrazka (szerokość jak przy wklejaniu). False — nie udało się.
+    /// </summary>
+    private static bool AttachImage(Ctx ctx, Node node, JsonElement image)
+    {
+        if (ctx.Resource is null || image.ValueKind != JsonValueKind.Object || Str(image, "src") is not { Length: > 0 } src) return false;
+        byte[]? bytes;
+        try
+        {
+            bytes = ctx.Resource(src);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException)
+        {
+            return false;
+        }
+        if (bytes is null || MapImages.MediaTypeOf(bytes) is not { } type) return false;
+        double w = Num(image, "width"), h = Num(image, "height");
+        if (w <= 0 || h <= 0)
+        {
+            var (pw, ph) = MapImages.PixelSize(bytes);
+            (w, h) = MapImages.FitSize(pw, ph);
+        }
+        MapImages.Attach(ctx.Map, node, MapImages.IdFor(bytes), MapImages.ToDataUri(bytes, type), w, h);
+        return true;
     }
 
     // ------------------------------------------------------------------ style

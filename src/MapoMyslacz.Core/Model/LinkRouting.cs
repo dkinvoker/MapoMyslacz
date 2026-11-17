@@ -177,13 +177,58 @@ public static class LinkRouting
 
     public static Vec Round(Vec v) => new(Math.Round(v.X, 1), Math.Round(v.Y, 1));
 
+    /// <summary>Odległość wspólnego „pnia” gałęzi łamanych od rodzica (połowa zwykłego odstępu dziecka od rodzica).</summary>
+    public const double TrunkOffset = 28;
+
+    /// <summary>
+    /// Gałąź drzewa w wybranym kształcie: łuk (<see cref="Branch(NodeOutline, NodeOutline)"/>), prosta od krawędzi do
+    /// krawędzi albo łamana pod kątem prostym. Łamana: gdy dziecko jest bardziej obok niż pod rodzicem — z boku
+    /// rodzica krótki odcinek do pnia, wzdłuż pnia do wysokości dziecka i do jego boku; gdy jest bardziej pod (nad) —
+    /// z dołu (góry) rodzica, wzdłuż poziomej belki i do góry (dołu) dziecka, jak w drzewie genealogicznym. Pień stoi
+    /// w stałej odległości od rodzica, więc wszystkie dzieci dzielą jeden.
+    /// </summary>
+    public static List<Cubic> BranchPath(NodeOutline parent, NodeOutline child, LinkCurve shape)
+    {
+        if (shape != LinkCurve.Elbow)
+        {
+            var curve = Branch(parent, child);
+            return shape == LinkCurve.Straight ? [Cubic.Line(curve.P0, curve.P3)] : [curve];
+        }
+        var pb = parent.Box;
+        var cb = child.Box;
+        const double far = 1e5;
+        double gapX = Math.Max(cb.Left - pb.Right, pb.Left - cb.Right);
+        double gapY = Math.Max(cb.Top - pb.Bottom, pb.Top - cb.Bottom);
+        if (gapY > gapX)
+        {
+            int dir = cb.Center.Y >= pb.Center.Y ? 1 : -1;
+            var s = parent.BoundaryToward(pb.Center + new Vec(0, dir * far));
+            var e = child.BoundaryToward(cb.Center - new Vec(0, dir * far));
+            if (Math.Abs(e.X - s.X) < 0.5) return [Cubic.Line(s, e)];
+            double my = s.Y + dir * Math.Min(Math.Abs(e.Y - s.Y) / 2, TrunkOffset);
+            return RoundedPolyline([s, new Vec(s.X, my), new Vec(e.X, my), e], 8);
+        }
+        else
+        {
+            int side = cb.Center.X >= pb.Center.X ? 1 : -1;
+            var s = parent.BoundaryToward(pb.Center + new Vec(side * far, 0));
+            var e = child.BoundaryToward(cb.Center - new Vec(side * far, 0));
+            if (Math.Abs(e.Y - s.Y) < 0.5) return [Cubic.Line(s, e)];
+            double mx = s.X + side * Math.Min(Math.Abs(e.X - s.X) / 2, TrunkOffset);
+            return RoundedPolyline([s, new Vec(mx, s.Y), new Vec(mx, e.Y), e], 8);
+        }
+    }
+
+    /// <summary>Czy gałąź wychodzi z boku rodzica (dziecko obok), a nie z góry albo z dołu (dziecko nad / pod nim).</summary>
+    private static bool BranchSideways(Box pb, Box cb) => cb.Left >= pb.Right + 2 || cb.Right <= pb.Left - 2;
+
     /// <summary>Gałąź drzewa od rodzica do dziecka: z boku (gdy dziecko jest obok) albo z góry/dołu.</summary>
     public static Cubic Branch(NodeOutline parent, NodeOutline child)
     {
         var pb = parent.Box;
         var cb = child.Box;
         const double far = 1e5;
-        if (cb.Left >= pb.Right + 2 || cb.Right <= pb.Left - 2)
+        if (BranchSideways(pb, cb))
         {
             int side = cb.Center.X >= pb.Center.X ? 1 : -1;
             var s = parent.BoundaryToward(pb.Center + new Vec(side * far, 0));

@@ -30,6 +30,11 @@ public sealed class MindMap
     /// <summary>Styl strzałek wybrany osobno (id z <see cref="MapThemes.LinkThemes"/>; brak = z motywu).</summary>
     public string? ArrowStyle { get; set; }
 
+    /// <summary>
+    /// Kształt gałęzi drzewa: łuki, proste albo łamane pod kątem prostym (drzewa genealogiczne, schematy). Brak = z motywu.
+    /// </summary>
+    public LinkCurve? BranchCurve { get; set; }
+
     /// <summary>Zapamiętany widok (środek ekranu w układzie mapy i powiększenie).</summary>
     public ViewState? View { get; set; }
 

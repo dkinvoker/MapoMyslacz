@@ -13,7 +13,16 @@ namespace MapoMyslacz;
 public sealed partial class MainWindow
 {
     private static readonly string AutoSaveFolder = Path.Combine(AppInfo.DataFolder, "autosave");
-    private static readonly TimeSpan AutoSaveInterval = TimeSpan.FromSeconds(60);
+
+    /// <summary>Odstęp autozapisu z opcji (1–30 minut).</summary>
+    private TimeSpan AutoSaveInterval => TimeSpan.FromMinutes(Math.Clamp(_settings.AutoSaveMinutes, 1, 30));
+
+    /// <summary>Nowy odstęp autozapisu (z okna opcji) działa od razu.</summary>
+    private void ApplyAutoSaveInterval()
+    {
+        if (_autoSaveTimer is null) return;
+        _autoSaveTimer.Interval = AutoSaveInterval;
+    }
 
     private readonly AutoSaveStore _autoSave = new(AutoSaveFolder);
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _autoSaveTimer;

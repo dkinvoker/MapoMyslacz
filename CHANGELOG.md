@@ -4,6 +4,41 @@ Numer wersji jest w jednym miejscu: `Directory.Build.props` (`<Version>`).
 Widać go na pasku tytułu aplikacji, w oknie „O programie” i we właściwościach pliku exe.
 Sekcja z numerem wersji trafia automatycznie do opisu wydania na GitHubie (patrz README → „Wydawanie nowej wersji”).
 
+## 1.4.0 — 2026-11-17
+
+### Nowe
+- **Historia wersji.** Przy każdym zapisie poprzednia wersja pliku trafia do historii (w folderze danych programu,
+  nie obok map; najwyżej co 5 minut). Zostaje 20 najnowszych, a starsze — po jednej z dnia przez 60 dni.
+  Plik → **Historia wersji…** pokazuje listę („dziś 14:32”, „wczoraj 18:05”…); „Przywróć” wczytuje wybraną wersję
+  jako niezapisaną mapę — Ctrl+S zapisze ją w miejscu obecnej, a obecna trafia przedtem do historii.
+- **Znajdź i zamień (Ctrl+H)** — tak jak wyszukiwarka: bez wielkości liter i polskich znaków („zolw” zamieni
+  „Żółw”), w tekstach i notatkach. Enter — w bieżącym wyniku i dalej, Ctrl+Enter albo „Wszystko” — we wszystkich
+  (jeden krok cofania). Reszta tekstu zostaje co do znaku.
+- **Arkusze — cały plik naraz:**
+  - wyszukiwanie i zamiana obejmują wszystkie arkusze (przełącznik w wyszukiwarce); wynik z innego arkusza sam
+    przełącza zakładkę,
+  - **PDF ze wszystkich arkuszy** — każdy od nowej strony, z własnym układem i nazwą w nagłówku (pole w oknie eksportu;
+    eksport PDF z wiersza poleceń też bierze wszystkie arkusze),
+  - **konspekt Markdown** wszystkich arkuszy — każdy pod nagłówkiem „#”; import takiego konspektu odtwarza arkusze,
+  - **kafelki przeciągnięte na zakładkę innego arkusza** przechodzą tam z gałęzią, w to samo miejsce i z tymi samymi
+    id (linki do nich działają dalej), razem ze strzałkami między nimi i ramkami,
+  - nowy arkusz dostaje motyw, styl strzałek, gałęzi i tło arkusza, obok którego powstaje.
+- **Gałęzie łamane** — kształt gałęzi drzewa do wyboru w panelu mapy: łuki, proste albo **łamane pod kątem prostym**.
+  Dzieci obok rodzica dzielą wspólny pionowy pień, dzieci pod rodzicem — wspólną poziomą belkę, jak w drzewie
+  genealogicznym albo schemacie organizacyjnym. Motyw „Schemat” ma je domyślnie.
+- **Kafelek upuszczony w ramce dołącza do niej** — ramka podświetla się w trakcie przeciągania (z innych ramek
+  kafelek wychodzi). Wyjmowanie z ramki — jak dotąd w menu kafelka.
+- **Przyciąganie do siatki:** przy widocznej siatce kropek środek przeciąganego kafelka przyskakuje do kropek
+  (Ctrl wyłącza).
+- **Obrazki z XMind** przechodzą do mapy (osadzone, w rozmiarze z XMind) — wcześniej w notatce zostawała tylko
+  informacja o obrazku.
+- **Nowe opcje:** przyciąganie do sąsiadów i do siatki, motyw nowych map, odstęp autozapisu (1, 2, 5 albo 10 minut).
+
+### Poprawki
+- Testy: 195 jednostkowych (nowe: zamiana tekstu, szukanie w arkuszach, konspekt wielu arkuszy, historia wersji
+  i jej sprzątanie, przenoszenie między arkuszami, gałęzie łamane, odczyt rozmiaru PNG/JPEG/GIF, obrazki z XMind)
+  i 15 testów interfejsu (nowe: zamiana we wszystkich arkuszach, upuszczenie kafelka w ramce i na zakładce arkusza).
+
 ## 1.3.2 — 2026-11-17
 
 ### Nowe

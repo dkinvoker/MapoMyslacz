@@ -188,6 +188,33 @@ internal sealed class AppSession : IDisposable
         Thread.Sleep(300);
     }
 
+    /// <summary>Środek elementu interfejsu na ekranie (piksele) — po jego nazwie (np. tekst zakładki).</summary>
+    public Point ScreenOfName(string name)
+    {
+        var e = Retry(() => Window.FindFirstDescendant(cf => cf.ByName(name)))
+                ?? throw new InvalidOperationException($"Nie ma elementu „{name}”.");
+        var r = e.BoundingRectangle;
+        return new Point(r.X + r.Width / 2, r.Y + r.Height / 2);
+    }
+
+    /// <summary>Przeciąganie z punktu mapy do punktu ekranu (np. na zakładkę arkusza pod płótnem).</summary>
+    public void DragToScreen(double x1, double y1, Point target)
+    {
+        Focus();
+        var start = Screen(x1, y1);
+        MoveTo(start);
+        Thread.Sleep(100);
+        Mouse.Down(MouseButton.Left);
+        for (int i = 1; i <= 20; i++)
+        {
+            MoveTo(new Point(start.X + (target.X - start.X) * i / 20, start.Y + (target.Y - start.Y) * i / 20));
+            Thread.Sleep(30);
+        }
+        Thread.Sleep(250);
+        Mouse.Up(MouseButton.Left);
+        Thread.Sleep(600);
+    }
+
     public void Type(string text)
     {
         Focus();
