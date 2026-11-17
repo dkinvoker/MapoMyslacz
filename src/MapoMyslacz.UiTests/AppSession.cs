@@ -57,14 +57,16 @@ internal sealed class AppSession : IDisposable
             .FirstOrDefault();
     }
 
-    public AppSession(string mapJson, string fileName = "ui-test.mapo")
+    /// <param name="settings">Dodatkowe ustawienia (fragment JSON, np. <c>"ChildrenAsArrows": true</c>).</param>
+    public AppSession(string mapJson, string fileName = "ui-test.mapo", string? settings = null)
     {
         _dir = Path.Combine(Path.GetTempPath(), "mapo-ui-" + Guid.NewGuid().ToString("N")[..8]);
         var data = Path.Combine(_dir, "dane");
         Directory.CreateDirectory(data);
         // bez sprawdzania aktualizacji (sieć) i ze stałym rozmiarem okna
+        var extra = settings is null ? "" : ", " + settings;
         File.WriteAllText(Path.Combine(data, "settings.json"),
-            """{ "CheckForUpdates": false, "ShowProperties": true, "ShowMinimap": false, "WindowWidth": 1500, "WindowHeight": 1000 }""");
+            $$"""{ "CheckForUpdates": false, "ShowProperties": true, "ShowMinimap": false, "WindowWidth": 1500, "WindowHeight": 1000{{extra}} }""");
         MapPath = Path.Combine(_dir, fileName);
         File.WriteAllText(MapPath, mapJson, new UTF8Encoding(false));
 
@@ -198,6 +200,22 @@ internal sealed class AppSession : IDisposable
         Focus();
         Keyboard.TypeSimultaneously(keys);
         Thread.Sleep(500);
+    }
+
+    /// <summary>Klik w środek elementu interfejsu (np. pola w panelu właściwości) po jego AutomationId.</summary>
+    public void ClickElement(string automationId)
+    {
+        var e = Retry(() => Window.FindFirstDescendant(cf => cf.ByAutomationId(automationId)))
+                ?? throw new InvalidOperationException($"Nie ma elementu „{automationId}”.");
+        Focus();
+        // element może leżeć poza widocznym fragmentem przewijanego panelu — fokus przewija go do widoku
+        e.Focus();
+        Thread.Sleep(300);
+        var r = e.BoundingRectangle;
+        MoveTo(new Point(r.X + r.Width / 2, r.Y + r.Height / 2));
+        Thread.Sleep(80);
+        Mouse.Click();
+        Thread.Sleep(400);
     }
 
     /// <summary>Tekst elementu (np. licznik kafelków na pasku stanu) po jego nazwie w XAML.</summary>

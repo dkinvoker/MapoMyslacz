@@ -19,7 +19,7 @@ public sealed partial class MainWindow
 
     private async Task ExportPdfAsync()
     {
-        Map.CommitEdit();
+        CommitAllEdits();
         if (Map.ExportBounds is null)
         {
             ShowToast("Mapa jest pusta — nie ma czego eksportować.", InfoBarSeverity.Warning);
@@ -43,7 +43,7 @@ public sealed partial class MainWindow
 
     private async Task PrintAsync()
     {
-        Map.CommitEdit();
+        CommitAllEdits();
         if (Map.ExportBounds is not { } content)
         {
             ShowToast("Mapa jest pusta — nie ma czego drukować.", InfoBarSeverity.Warning);
@@ -288,7 +288,13 @@ public sealed partial class MainWindow
     {
         _backlinksCts?.Cancel();
         var path = _session.FilePath;
-        _backlinks = [];
+        if (_backlinks.Count > 0)
+        {
+            // panel mapy pokazywał linki zwrotne poprzedniej mapy
+            _backlinks = [];
+            DropPanel("0000");
+            if (_session.SelectionCount == 0) RebuildProperties();
+        }
         _backlinksFor = null;
         if (path is null || Headless) return;
         var cts = new CancellationTokenSource();
@@ -299,7 +305,11 @@ public sealed partial class MainWindow
             if (cts.IsCancellationRequested || _session.FilePath != path) return;
             _backlinks = found;
             _backlinksFor = path;
-            if (found.Count > 0 && _session.SelectionCount == 0) RebuildProperties();
+            if (found.Count > 0)
+            {
+                DropPanel("0000"); // panel mapy pokazuje linki zwrotne — zbuduje się od nowa
+                if (_session.SelectionCount == 0) RebuildProperties();
+            }
         }
         catch (OperationCanceledException)
         {

@@ -81,21 +81,27 @@
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE792;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <MenuFlyoutSeparator />
-                            <MenuFlyoutItem Text="Importuj z XMind…" Click="ImportXmind_Click">
-                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B5;" /></MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                            <MenuFlyoutItem Text="Importuj konspekt (Markdown, tekst)…" Click="ImportOutline_Click">
-                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A4;" /></MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                            <MenuFlyoutItem Text="Eksportuj konspekt (Markdown)…" Click="ExportMarkdown_Click">
-                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A5;" /></MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                            <MenuFlyoutItem Text="Eksportuj obraz PNG…" Click="ExportPng_Click" KeyboardAcceleratorTextOverride="Ctrl+E">
-                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEB9F;" /></MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                            <MenuFlyoutItem Text="Eksportuj PDF…" Click="ExportPdf_Click" KeyboardAcceleratorTextOverride="Ctrl+Shift+E">
-                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEA90;" /></MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
+                            <MenuFlyoutSubItem x:Name="ImportMenu" Text="Importuj">
+                                <MenuFlyoutSubItem.Icon><FontIcon Glyph="&#xE8B5;" /></MenuFlyoutSubItem.Icon>
+                                <MenuFlyoutItem Text="Z XMind (.xmind)…" Click="ImportXmind_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B5;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Konspekt (Markdown, tekst)…" Click="ImportOutline_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A4;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                            </MenuFlyoutSubItem>
+                            <MenuFlyoutSubItem x:Name="ExportMenu" Text="Eksportuj">
+                                <MenuFlyoutSubItem.Icon><FontIcon Glyph="&#xEDE1;" /></MenuFlyoutSubItem.Icon>
+                                <MenuFlyoutItem Text="Do PDF…" Click="ExportPdf_Click" KeyboardAcceleratorTextOverride="Ctrl+Shift+E">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEA90;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Do obrazu PNG…" Click="ExportPng_Click" KeyboardAcceleratorTextOverride="Ctrl+E">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEB9F;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Do konspektu Markdown…" Click="ExportMarkdown_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A5;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                            </MenuFlyoutSubItem>
                             <MenuFlyoutItem Text="Drukuj…" Click="Print_Click" KeyboardAcceleratorTextOverride="Ctrl+P">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE749;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
@@ -121,10 +127,10 @@
                         <TextBlock Text="Kafelek" />
                     </StackPanel>
                 </Button>
-                <Button Style="{StaticResource ToolButton}" Click="AddChild_Click" ToolTipService.ToolTip="Dodaj dziecko (Tab)">
+                <Button x:Name="AddChildButton" Style="{StaticResource ToolButton}" Click="AddChild_Click" ToolTipService.ToolTip="Dodaj dziecko (Tab)">
                     <FontIcon Glyph="&#xE8B4;" Style="{StaticResource ToolIcon}" />
                 </Button>
-                <Button Style="{StaticResource ToolButton}" Click="AddSibling_Click" ToolTipService.ToolTip="Dodaj rodzeństwo (Enter)">
+                <Button x:Name="AddSiblingButton" Style="{StaticResource ToolButton}" Click="AddSibling_Click" ToolTipService.ToolTip="Dodaj rodzeństwo (Enter)">
                     <FontIcon Glyph="&#xE8FD;" Style="{StaticResource ToolIcon}" />
                 </Button>
                 <Button Style="{StaticResource ToolButton}" Click="Connect_Click" ToolTipService.ToolTip="Połącz strzałką (Ctrl+L) — albo przeciągnij kółko „+” przy zaznaczonym kafelku">
@@ -211,10 +217,13 @@
                               Padding="9,7" IsChecked="True" Click="PanelToggle_Click" ToolTipService.ToolTip="Panel właściwości">
                     <FontIcon Glyph="&#xE8A0;" Style="{StaticResource ToolIcon}" />
                 </ToggleButton>
-                <DropDownButton Style="{StaticResource ToolDropDown}" ToolTipService.ToolTip="Pomoc i aktualizacje">
+                <DropDownButton x:Name="HelpButton" Style="{StaticResource ToolDropDown}" ToolTipService.ToolTip="Opcje, pomoc i aktualizacje">
                     <FontIcon Glyph="&#xE897;" Style="{StaticResource ToolIcon}" />
                     <DropDownButton.Flyout>
                         <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <MenuFlyoutItem x:Name="OptionsMenuItem" Text="Opcje…" Click="Options_Click" KeyboardAcceleratorTextOverride="Ctrl+,">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE713;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
                             <MenuFlyoutItem Text="Skróty i obsługa myszy" Click="Help_Click" KeyboardAcceleratorTextOverride="F1">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE765;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
@@ -222,7 +231,6 @@
                             <MenuFlyoutItem x:Name="CheckUpdateButton" Text="Sprawdź aktualizacje" Click="CheckUpdateNow_Click">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE895;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
-                            <ToggleMenuFlyoutItem x:Name="AutoUpdateCheck" Text="Sprawdzaj automatycznie przy starcie" Click="AutoUpdate_Click" />
                             <MenuFlyoutSeparator />
                             <MenuFlyoutItem Text="O programie" Click="About_Click">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE946;" /></MenuFlyoutItem.Icon>
@@ -304,9 +312,14 @@
             <Border x:Name="PropsPanel" Grid.Column="1" Width="300" BorderThickness="1,1,0,0"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     Background="{ThemeResource LayerFillColorDefaultBrush}">
-                <ScrollViewer HorizontalScrollMode="Disabled" VerticalScrollBarVisibility="Auto">
-                    <StackPanel x:Name="PropsHost" Padding="16,14,16,20" Spacing="6" />
-                </ScrollViewer>
+                <Grid>
+                    <ScrollViewer HorizontalScrollMode="Disabled" VerticalScrollBarVisibility="Auto">
+                        <!-- gotowe panele (kafelek, strzałka, mapa…) — widoczny jest jeden -->
+                        <Grid x:Name="PropsHost" Padding="16,14,16,20" />
+                    </ScrollViewer>
+                    <!-- przygotowanie panelu w tle: płótno nie zajmuje miejsca, ale mierzy i układa to, co na nim leży -->
+                    <Canvas x:Name="PanelWarmup" Opacity="0" IsHitTestVisible="False" />
+                </Grid>
             </Border>
         </Grid>
 

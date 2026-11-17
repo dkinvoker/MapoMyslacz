@@ -15,7 +15,7 @@ public sealed partial class MainWindow
 
     private void OpenSearch()
     {
-        Map.CommitEdit();
+        CommitAllEdits();
         SearchHost.Visibility = Visibility.Visible;
         SearchBox.Focus(FocusState.Keyboard);
         SearchBox.SelectAll();

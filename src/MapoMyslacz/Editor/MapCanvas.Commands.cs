@@ -41,6 +41,12 @@ public sealed partial class MapCanvas
         StartEditor(node.Id, null, isNew: true);
     }
 
+    /// <summary>
+    /// Opcja „nowe dzieci jako strzałki”: Tab, Enter i kółko „+” tworzą swobodne kafelki połączone strzałką zamiast
+    /// gałęzi drzewa.
+    /// </summary>
+    public bool ChildrenAsArrows { get; set; }
+
     public void AddChild()
     {
         var parent = _session.SingleNode ?? _session.SelectedNodeObjects.FirstOrDefault();
@@ -49,7 +55,7 @@ public sealed partial class MapCanvas
             AddFloating();
             return;
         }
-        CreateAndEdit(m => MapOps.AddChild(m, parent.Id, Sizer));
+        CreateAndEdit(m => ChildrenAsArrows ? MapOps.AddLinkedChild(m, parent.Id, Sizer) : MapOps.AddChild(m, parent.Id, Sizer));
     }
 
     public void AddSibling()
@@ -59,7 +65,7 @@ public sealed partial class MapCanvas
             AddFloating();
             return;
         }
-        CreateAndEdit(m => MapOps.AddSibling(m, node.Id, Sizer));
+        CreateAndEdit(m => ChildrenAsArrows ? MapOps.AddLinkedSibling(m, node.Id, Sizer) : MapOps.AddSibling(m, node.Id, Sizer));
     }
 
     /// <summary>Nowy swobodny kafelek na środku widoku.</summary>

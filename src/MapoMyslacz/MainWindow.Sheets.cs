@@ -26,7 +26,7 @@ public sealed partial class MainWindow
             UpdateSheetTabLabels();
             return;
         }
-        Map.CommitEdit();
+        CommitAllEdits();
         if (_document.Sheets.Contains(_session)) _session.RememberView(Map.CurrentView);
         ActivateSession(target);
         UpdateSheetTabLabels();

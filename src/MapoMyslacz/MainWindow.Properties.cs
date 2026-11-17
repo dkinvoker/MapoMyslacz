@@ -1,7 +1,9 @@
 using MapoMyslacz.Core.Model;
 using MapoMyslacz.Editor;
+using MapoMyslacz.Core.Editing;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
@@ -12,15 +14,32 @@ using MapFrame = MapoMyslacz.Core.Model.Frame;
 namespace MapoMyslacz;
 
 /// <summary>
-/// Panel właściwości po prawej: zależnie od zaznaczenia — kafelki, strzałki albo cała mapa.
-/// Kontrolki budowane są w kodzie przy zmianie zaznaczenia; przy zmianie treści (np. cofnięcie) tylko
-/// odświeżają wartości (lista <see cref="_refreshers"/>), żeby nie gubić fokusu w trakcie pisania notatki.
-/// Każda zmiana z panelu to jeden krok cofania.
+/// Panel właściwości po prawej: zależnie od zaznaczenia — kafelki, strzałki, ramki, gałęzie albo cała mapa.
+/// Każdy rodzaj panelu (np. „jeden kafelek”, „kilka kafelków”, „strzałka”, „mapa”) budowany jest w kodzie raz
+/// i zapamiętywany — przy zmianie zaznaczenia tylko się go pokazuje i odświeża wartości (lista
+/// <see cref="Refreshers"/>). Budowa i pierwszy układ ~150 kontrolek trwały kilkaset milisekund, więc panel
+/// pojedynczego kafelka przygotowuje się też w tle zaraz po starcie (<see cref="PrewarmPanels"/>).
+/// Każda zmiana z panelu to jeden krok cofania (pisanie w polu tekstowym — jeden krok na całe pole).
 /// </summary>
 public sealed partial class MainWindow
 {
-    private readonly List<Action> _refreshers = [];
+    private sealed class PropertyPanel(string key)
+    {
+        public string Key { get; } = key;
+        public StackPanel Root { get; } = new() { Spacing = 6 };
+        public List<Action> Refreshers { get; } = [];
+    }
+
+    private readonly Dictionary<string, PropertyPanel> _panels = [];
+    private PropertyPanel? _shownPanel, _buildingPanel;
+    private string? _panelsEnv;
+    private int _presetsVersion;
+    /// <summary>Zapis niezapisanych zmian ze wszystkich pól tekstowych paneli (przed zapisem pliku, zmianą panelu…).</summary>
+    private readonly List<Action> _textFlushers = [];
     private bool _refreshing;
+
+    /// <summary>Lista odświeżaczy budowanego (albo pokazanego) panelu.</summary>
+    private List<Action> Refreshers => (_buildingPanel ?? _shownPanel)?.Refreshers ?? [];
 
     private void RebuildProperties()
     {
@@ -31,30 +50,162 @@ public sealed partial class MainWindow
         }
         finally
         {
-            Editor.MapCanvas.Trace($"panel {sw.Elapsed.TotalMilliseconds:0.0} ms ({PropsHost.Children.Count} elementów)");
+            if (Editor.MapCanvas.TraceFile is not null)
+            {
+                Editor.MapCanvas.Trace($"panel {sw.Elapsed.TotalMilliseconds:0.0} ms ({PropsHost.Children.Count} elementów)");
+                // ile jeszcze trwa układ i pierwsze narysowanie nowych kontrolek
+                EventHandler<object>? shown = null;
+                shown = (_, _) =>
+                {
+                    Microsoft.UI.Xaml.Media.CompositionTarget.Rendering -= shown;
+                    Editor.MapCanvas.Trace($"panel na ekranie po {sw.Elapsed.TotalMilliseconds:0} ms");
+                };
+                Microsoft.UI.Xaml.Media.CompositionTarget.Rendering += shown;
+            }
         }
     }
 
     private void RebuildPropertiesCore()
     {
-        _refreshers.Clear();
-        PropsHost.Children.Clear();
-        var nodes = _session.SelectedNodes.Count;
-        var links = _session.SelectedLinks.Count;
-        var frames = _session.SelectedFrames.Count;
-        var branches = _session.SelectedBranches.Count;
-        if (nodes > 0) BuildNodePanel(nodes);
-        if (links > 0) BuildLinkPanel(links, separated: nodes > 0);
-        if (frames > 0) BuildFramePanel(frames, separated: nodes + links > 0);
-        if (branches > 0) BuildBranchPanel(branches, separated: nodes + links + frames > 0);
-        if (nodes == 0 && links == 0 && frames == 0 && branches == 0) BuildMapPanel();
+        FlushPanelEdits();
+        // gotowe panele zależą od koloru płótna (podglądy stylów), własnych stylów i jasnego/ciemnego wyglądu
+        var env = $"{Map.CanvasColor}|{_presetsVersion}|{(Content as FrameworkElement)?.ActualTheme}";
+        if (env != _panelsEnv)
+        {
+            InvalidatePanels();
+            _panelsEnv = env;
+        }
+        var key = PanelKey();
+        var panel = _panels.TryGetValue(key, out var cached) ? cached : BuildPanel(key);
+        ShowPanel(panel);
         RefreshProperties();
+    }
+
+    /// <summary>Rodzaj panelu: po cyfrze (0 — brak, 1 — jeden, 2 — kilka) dla kafelków, strzałek, ramek i gałęzi.</summary>
+    private string PanelKey()
+    {
+        static int B(int n) => Math.Min(n, 2);
+        return $"{B(_session.SelectedNodes.Count)}{B(_session.SelectedLinks.Count)}{B(_session.SelectedFrames.Count)}{B(_session.SelectedBranches.Count)}";
+    }
+
+    private PropertyPanel BuildPanel(string key)
+    {
+        var p = new PropertyPanel(key);
+        p.Root.Visibility = Visibility.Collapsed;
+        int nodes = key[0] - '0', links = key[1] - '0', frames = key[2] - '0', branches = key[3] - '0';
+        _buildingPanel = p;
+        try
+        {
+            if (nodes > 0) BuildNodePanel(nodes);
+            if (links > 0) BuildLinkPanel(links, separated: nodes > 0);
+            if (frames > 0) BuildFramePanel(frames, separated: nodes + links > 0);
+            if (branches > 0) BuildBranchPanel(branches, separated: nodes + links + frames > 0);
+            if (nodes == 0 && links == 0 && frames == 0 && branches == 0) BuildMapPanel();
+        }
+        finally
+        {
+            _buildingPanel = null;
+        }
+        _panels[key] = p;
+        return p;
+    }
+
+    private void ShowPanel(PropertyPanel panel)
+    {
+        if (!ReferenceEquals(_shownPanel, panel))
+        {
+            if (_shownPanel is not null) _shownPanel.Root.Visibility = Visibility.Collapsed;
+            _shownPanel = panel;
+        }
+        AttachPanel(panel);
+        panel.Root.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>Wkłada panel do panelu właściwości (np. po przygotowaniu w tle) — ukryty, chyba że jest pokazywany.</summary>
+    private void AttachPanel(PropertyPanel p)
+    {
+        if (ReferenceEquals(p.Root.Parent, PropsHost)) return;
+        if (p.Root.Parent is Panel old) old.Children.Remove(p.Root);
+        p.Root.ClearValue(FrameworkElement.WidthProperty);
+        p.Root.Opacity = 1;
+        p.Root.IsHitTestVisible = true;
+        p.Root.Visibility = ReferenceEquals(p, _shownPanel) ? Visibility.Visible : Visibility.Collapsed;
+        PropsHost.Children.Add(p.Root);
+    }
+
+    /// <summary>Zapomina gotowe panele (np. nowe własne style albo zmiana koloru płótna) — zbudują się od nowa.</summary>
+    private void InvalidatePanels()
+    {
+        FlushPanelEdits();
+        _textFlushers.Clear();
+        foreach (var p in _panels.Values)
+            if (p.Root.Parent is Panel parent) parent.Children.Remove(p.Root);
+        _panels.Clear();
+        _shownPanel = null;
+    }
+
+    /// <summary>Zapomina jeden gotowy panel (np. panel mapy po znalezieniu linków zwrotnych).</summary>
+    private void DropPanel(string key)
+    {
+        if (!_panels.Remove(key, out var p)) return;
+        FlushPanelEdits();
+        if (p.Root.Parent is Panel parent) parent.Children.Remove(p.Root);
+        if (ReferenceEquals(_shownPanel, p)) _shownPanel = null;
+    }
+
+    /// <summary>Kończy każdą edycję tekstu — na płótnie i w polach panelu (przed zapisem, eksportem, zmianą arkusza…).</summary>
+    private void CommitAllEdits()
+    {
+        FlushPanelEdits();
+        Map.CommitEdit();
+    }
+
+    /// <summary>Zapisuje to, co wpisano w pola tekstowe paneli, a jeszcze nie trafiło na mapę.</summary>
+    private void FlushPanelEdits()
+    {
+        foreach (var f in _textFlushers.ToList()) f();
+    }
+
+    /// <summary>
+    /// Panel pojedynczego kafelka budowany w tle po starcie: kontrolki leżą przez chwilę niewidoczne na płótnie
+    /// (<c>PanelWarmup</c>, które nie zajmuje miejsca, ale je mierzy i układa — szablony są potem gotowe), a potem
+    /// trafiają ukryte do panelu. Pierwsze zaznaczenie kafelka pokazuje je od razu.
+    /// </summary>
+    private void PrewarmPanels()
+    {
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (_session is null || !_settings.ShowProperties) return;
+            var env = $"{Map.CanvasColor}|{_presetsVersion}|{(Content as FrameworkElement)?.ActualTheme}";
+            if (env != _panelsEnv)
+            {
+                InvalidatePanels();
+                _panelsEnv = env;
+                RebuildProperties(); // pokazywany panel (mapy) trzeba odtworzyć po wyczyszczeniu
+            }
+            if (_panels.ContainsKey("1000")) return;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var p = BuildPanel("1000");
+            p.Root.Width = Math.Max(200, PropsHost.ActualWidth - PropsHost.Padding.Left - PropsHost.Padding.Right);
+            p.Root.Opacity = 0;
+            p.Root.IsHitTestVisible = false;
+            p.Root.Visibility = Visibility.Visible;
+            bool attached = false;
+            p.Root.Loaded += (_, _) => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                if (attached) return;
+                attached = true;
+                AttachPanel(p);
+                if (Editor.MapCanvas.TraceFile is not null) Editor.MapCanvas.Trace($"panel kafelka przygotowany w tle: {sw.Elapsed.TotalMilliseconds:0} ms");
+            });
+            PanelWarmup.Children.Add(p.Root);
+        });
     }
 
     private void BuildBranchPanel(int count, bool separated)
     {
         if (separated) Add(new Rectangle { Height = 1, Fill = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"], Margin = new Thickness(0, 14, 0, 4) });
-        Header(count == 1 ? "Gałąź" : $"Gałęzie ({count})",
+        Header(Counted("Gałąź", "Gałęzie", () => _session.SelectedBranches.Count),
             "Gałąź łączy kafelek z rodzicem w drzewie i rysuje się sama (Tab, Enter, kółko „+”). Jej kolor przechodzi na dalsze gałęzie.");
         List<Node> Children() => _session.SelectedBranchChildren.ToList();
         void EditChildren(Action<Node> change)
@@ -96,18 +247,17 @@ public sealed partial class MainWindow
     private void BuildFramePanel(int count, bool separated)
     {
         if (separated) Add(new Rectangle { Height = 1, Fill = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"], Margin = new Thickness(0, 14, 0, 4) });
-        Header(count == 1 ? "Ramka" : $"Ramki ({count})",
+        Header(Counted("Ramka", "Ramki", () => _session.SelectedFrames.Count),
             "Ramka obejmuje swoje kafelki razem z gałęziami i przesuwa się razem z nimi. Chwyć ją za nagłówek, żeby przesunąć całą grupę.");
 
         if (count == 1)
         {
             Section("Nazwa");
             var title = new TextBox { PlaceholderText = "np. „Wioska”, „Las”, „Zamek”" };
-            BindText(title, () => SelFrames() is [{ } f] ? f.Title : null, t =>
-            {
-                var v = string.IsNullOrWhiteSpace(t) ? null : t.Trim();
-                if (SelFrames() is [{ } f] && f.Title != v) EditFrames(x => x.Title = v);
-            });
+            BindText(title, () => SelFrames() is [{ } f] ? f.Id : null,
+                (s, id) => s.FindFrame(id)?.Title,
+                (s, id, t) => { if (s.FindFrame(id) is { } f) f.Title = string.IsNullOrWhiteSpace(t) ? null : t.Trim(); });
+            AutomationProperties.SetAutomationId(title, "FrameTitle");
             title.KeyDown += (_, e) => { if (e.Key == VirtualKey.Enter) Map.Focus(FocusState.Programmatic); };
             Add(title);
         }
@@ -117,7 +267,7 @@ public sealed partial class MainWindow
             c => EditFrames(f => f.Color = c), autoTip: $"Domyślny ({Styles.FrameColors[0].Name.ToLowerInvariant()})", allowCustom: true));
 
         var info = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.7, Margin = new Thickness(0, 10, 0, 0) };
-        _refreshers.Add(() =>
+        Refreshers.Add(() =>
         {
             var idx = _session.Index;
             int n = SelFrames().SelectMany(f => MapOps.FrameContent(idx, f)).Distinct().Count();
@@ -134,14 +284,15 @@ public sealed partial class MainWindow
 
     private void RefreshProperties()
     {
+        bool was = _refreshing; // odświeżenie może się zagnieździć (pole tekstowe zapisuje zaległy tekst → zmiana mapy)
         _refreshing = true;
         try
         {
-            foreach (var r in _refreshers) r();
+            if (_shownPanel is { } shown) foreach (var r in shown.Refreshers.ToList()) r();
         }
         finally
         {
-            _refreshing = false;
+            _refreshing = was;
         }
     }
 
@@ -205,7 +356,7 @@ public sealed partial class MainWindow
         }
         var accent = Xaml.Brush(Editor.MapCanvas.Accent);
         var stroke = (Brush)Application.Current.Resources["ControlStrongStrokeColorDefaultBrush"];
-        _refreshers.Add(() =>
+        Refreshers.Add(() =>
         {
             var current = MapThemes.Find(_session.Map.Theme);
             foreach (var (c, t) in cards)
@@ -229,7 +380,7 @@ public sealed partial class MainWindow
             Map.CommitEdit();
             _session.Edit(m => m.ArrowStyle = id);
         };
-        _refreshers.Add(() =>
+        Refreshers.Add(() =>
         {
             int i = MapThemes.LinkThemes.ToList().FindIndex(l => l.Id == _session.Map.ArrowStyle);
             arrows.SelectedIndex = i < 0 ? 0 : i + 1;
@@ -317,11 +468,9 @@ public sealed partial class MainWindow
 
         Section("Tytuł");
         var title = new TextBox { PlaceholderText = "Tytuł mapy (podpowiedź nazwy pliku)" };
-        BindText(title, () => _session.Map.Title, t =>
-        {
-            var v = string.IsNullOrWhiteSpace(t) ? null : t.Trim();
-            if (v != _session.Map.Title) _session.Edit(m => m.Title = v);
-        });
+        BindText(title, () => "mapa", (s, _) => s.Map.Title,
+            (s, _, t) => s.Map.Title = string.IsNullOrWhiteSpace(t) ? null : t.Trim());
+        AutomationProperties.SetAutomationId(title, "MapTitle");
         title.KeyDown += (_, e) => { if (e.Key == VirtualKey.Enter) Map.Focus(FocusState.Programmatic); };
         Add(title);
 
@@ -373,17 +522,15 @@ public sealed partial class MainWindow
 
     private void BuildNodePanel(int count)
     {
-        Header(count == 1 ? "Kafelek" : $"Kafelki ({count})", count == 1 ? null : "Zmiany obejmą wszystkie zaznaczone kafelki.");
+        Header(Counted("Kafelek", "Kafelki", () => _session.SelectedNodes.Count), count == 1 ? null : "Zmiany obejmą wszystkie zaznaczone kafelki.");
 
         if (count == 1)
         {
             Section("Tekst");
             var text = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 34, MaxHeight = 140 };
-            BindText(text, () => SelNodes() is [{ } n] ? n.Text : null, t =>
-            {
-                var v = t.Trim();
-                if (SelNodes() is [{ } n] && n.Text != v) EditNodes(x => x.Text = v);
-            });
+            BindText(text, SingleNodeId, (s, id) => s.Index.Get(id)?.Text,
+                (s, id, t) => { if (s.Index.Get(id) is { } n) n.Text = t.Trim(); });
+            AutomationProperties.SetAutomationId(text, "NodeText");
             Add(text);
         }
 
@@ -407,7 +554,7 @@ public sealed partial class MainWindow
             shapes.Children.Add(b);
             shapeButtons.Add((b, s));
         }
-        _refreshers.Add(() =>
+        Refreshers.Add(() =>
         {
             var cur = SelNodes().FirstOrDefault()?.Style?.Shape ?? NodeShape.Rounded;
             foreach (var (b, s) in shapeButtons) b.IsChecked = s == cur;
@@ -435,7 +582,7 @@ public sealed partial class MainWindow
             if (double.IsNaN(e.NewValue)) return;
             EditNodeStyles(s => s.FontSize = Math.Abs(e.NewValue - Styles.DefaultFontSize) < 0.01 ? null : e.NewValue);
         };
-        _refreshers.Add(() => size.Value = SelNodes().FirstOrDefault()?.Style?.FontSize ?? Styles.DefaultFontSize);
+        Refreshers.Add(() => size.Value = SelNodes().FirstOrDefault()?.Style?.FontSize ?? Styles.DefaultFontSize);
         row.Children.Add(size);
         row.Children.Add(StyleToggle("", "Pogrubienie (Ctrl+B)", n => n.Style?.Bold == true, on => EditNodeStyles(s => s.Bold = on ? true : null)));
         row.Children.Add(StyleToggle("", "Kursywa (Ctrl+I)", n => n.Style?.Italic == true, on => EditNodeStyles(s => s.Italic = on ? true : null)));
@@ -477,7 +624,7 @@ public sealed partial class MainWindow
             if (double.IsNaN(e.NewValue)) return;
             EditNodeStyles(s => s.BorderWidth = e.NewValue <= 0 ? null : e.NewValue);
         };
-        _refreshers.Add(() => bw.Value = SelNodes().FirstOrDefault()?.Style?.BorderWidth ?? 0);
+        Refreshers.Add(() => bw.Value = SelNodes().FirstOrDefault()?.Style?.BorderWidth ?? 0);
         borderRow.Children.Add(bw);
         borderRow.Children.Add(new TextBlock { Text = "grubość", VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7, FontSize = 12 });
         Add(borderRow);
@@ -494,14 +641,19 @@ public sealed partial class MainWindow
         }
         Add(patternRow);
 
-        var idx = _session.Index;
-        if (SelNodes().Any(n => n.Parent is not null || idx.ChildrenOf(n.Id).Count > 0))
+        // kolor gałęzi — tylko gdy któryś z kafelków jest w drzewie (panel jest budowany raz, więc sekcja się chowa)
+        var branchTitle = new TextBlock { Text = "Kolor gałęzi", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 2), Opacity = 0.9 };
+        var branchColors = Swatches(Styles.BranchPalette.Select(c => c.ToString()).Append("#8A8794").Append("#1E1B26"),
+            () => SelNodes().FirstOrDefault()?.Style?.BranchColor, c => EditNodeStyles(s => s.BranchColor = c),
+            autoTip: "Automatyczny (dziedziczony / z palety)", allowCustom: true);
+        Refreshers.Add(() =>
         {
-            Section("Kolor gałęzi");
-            Add(Swatches(Styles.BranchPalette.Select(c => c.ToString()).Append("#8A8794").Append("#1E1B26"),
-                () => SelNodes().FirstOrDefault()?.Style?.BranchColor, c => EditNodeStyles(s => s.BranchColor = c),
-                autoTip: "Automatyczny (dziedziczony / z palety)", allowCustom: true));
-        }
+            var idx = _session.Index;
+            var v = SelNodes().Any(n => n.Parent is not null || idx.ChildrenOf(n.Id).Count > 0) ? Visibility.Visible : Visibility.Collapsed;
+            branchTitle.Visibility = branchColors.Visibility = v;
+        });
+        Add(branchTitle);
+        Add(branchColors);
 
         Section("Szerokość tekstu");
         var width = new NumberBox
@@ -519,7 +671,7 @@ public sealed partial class MainWindow
             if (double.IsNaN(e.NewValue)) return;
             EditNodes(n => n.Width = e.NewValue <= 0 ? null : e.NewValue);
         };
-        _refreshers.Add(() => width.Value = SelNodes().FirstOrDefault()?.Width ?? 0);
+        Refreshers.Add(() => width.Value = SelNodes().FirstOrDefault()?.Width ?? 0);
         Add(width);
 
         if (count == 1)
@@ -534,21 +686,19 @@ public sealed partial class MainWindow
                 PlaceholderText = "Dłuższy opis, szczegóły, linki… (na kafelku pojawi się znaczek)",
             };
             ScrollViewer.SetVerticalScrollBarVisibility(note, ScrollBarVisibility.Auto);
-            BindText(note, () => SelNodes() is [{ } n] ? n.Note : null, t =>
-            {
-                var v = string.IsNullOrWhiteSpace(t) ? null : t.TrimEnd();
-                if (SelNodes() is [{ } n] && n.Note != v) EditNodes(x => x.Note = v);
-            });
+            BindText(note, SingleNodeId, (s, id) => s.Index.Get(id)?.Note,
+                (s, id, t) => { if (s.Index.Get(id) is { } n) n.Note = string.IsNullOrWhiteSpace(t) ? null : t.TrimEnd(); });
+            AutomationProperties.SetAutomationId(note, "NodeNote");
             Add(note);
 
             Section("Link");
             var link = new TextBox { PlaceholderText = "https://…, inna mapa (.mapo), plik albo kafelek" };
-            BindText(link, () => SelNodes() is [{ } n] ? n.Link : null, t =>
-            {
-                // wklejona pełna ścieżka staje się względna, a link do kafelka tej mapy — krótkim „#id”
-                var v = string.IsNullOrWhiteSpace(t) ? null : LinkTargets.Normalize(t, _session.FilePath);
-                if (SelNodes() is [{ } n] && n.Link != v) EditNodes(x => x.Link = v);
-            });
+            // wklejona pełna ścieżka staje się względna, a link do kafelka tej mapy — krótkim „#id” (dopiero po
+            // wyjściu z pola albo Enter — w trakcie pisania adres jest niepełny)
+            BindText(link, SingleNodeId, (s, id) => s.Index.Get(id)?.Link,
+                (s, id, t) => { if (s.Index.Get(id) is { } n) n.Link = string.IsNullOrWhiteSpace(t) ? null : LinkTargets.Normalize(t, s.FilePath); },
+                live: false);
+            AutomationProperties.SetAutomationId(link, "NodeLink");
             link.KeyDown += (_, e) => { if (e.Key == VirtualKey.Enter) Map.Focus(FocusState.Programmatic); };
             Add(link);
             var linkRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 4, 0, 0) };
@@ -560,7 +710,7 @@ public sealed partial class MainWindow
             pickNode.Click += (_, _) => Map.EnterLinkPickMode();
             var open = new Button { Content = "Otwórz" };
             open.Click += (_, _) => { if (SelNodes() is [{ } n]) _ = OpenLinkAsync(n); };
-            _refreshers.Add(() => open.IsEnabled = SelNodes() is [{ Link.Length: > 0 }]);
+            Refreshers.Add(() => open.IsEnabled = SelNodes() is [{ Link.Length: > 0 }]);
             linkRow.Children.Add(pick);
             linkRow.Children.Add(pickNode);
             linkRow.Children.Add(open);
@@ -590,9 +740,10 @@ public sealed partial class MainWindow
             foreach (var (horizontal, text) in new[] { (true, "Rozłóż ↔"), (false, "Rozłóż ↕") })
             {
                 var h = horizontal;
-                var b = new Button { Content = text, Height = 32, IsEnabled = count >= 3 };
+                var b = new Button { Content = text, Height = 32 };
                 ToolTipService.SetToolTip(b, h ? "Równe odstępy w poziomie (skrajne kafelki zostają)" : "Równe odstępy w pionie (skrajne kafelki zostają)");
                 b.Click += (_, _) => Map.DistributeSelection(h);
+                Refreshers.Add(() => b.IsEnabled = _session.SelectedNodes.Count >= 3);
                 distRow.Children.Add(b);
             }
             Add(distRow);
@@ -610,17 +761,16 @@ public sealed partial class MainWindow
     private void BuildLinkPanel(int count, bool separated)
     {
         if (separated) Add(new Rectangle { Height = 1, Fill = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"], Margin = new Thickness(0, 14, 0, 4) });
-        Header(count == 1 ? "Strzałka" : $"Strzałki ({count})", null);
+        Header(Counted("Strzałka", "Strzałki", () => _session.SelectedLinks.Count), null);
 
         if (count == 1)
         {
             Section("Podpis");
             var label = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, PlaceholderText = "np. „jest bratem”, „prowadzi do”" };
-            BindText(label, () => SelLinks() is [{ } l] ? l.Label : null, t =>
-            {
-                var v = t.Trim().Length == 0 ? null : t.Trim();
-                if (SelLinks() is [{ } l] && l.Label != v) EditLinks(x => x.Label = v);
-            });
+            BindText(label, () => SelLinks() is [{ } l] ? l.Id : null,
+                (s, id) => s.Map.Links.FirstOrDefault(l => l.Id == id)?.Label,
+                (s, id, t) => { if (s.Map.Links.FirstOrDefault(l => l.Id == id) is { } l) l.Label = t.Trim().Length == 0 ? null : t.Trim(); });
+            AutomationProperties.SetAutomationId(label, "LinkLabel");
             Add(label);
         }
 
@@ -645,7 +795,7 @@ public sealed partial class MainWindow
             if (LinkLook() is { } look && Math.Abs(look.Width - e.NewValue) < 0.01) return;
             EditLinkStyles(s => s.Width = Math.Abs(e.NewValue - LinkDefaults.Width) < 0.01 ? null : e.NewValue);
         };
-        _refreshers.Add(() => width.Value = LinkLook()?.Width ?? LinkDefaults.Width);
+        Refreshers.Add(() => width.Value = LinkLook()?.Width ?? LinkDefaults.Width);
         row.Children.Add(width);
         row.Children.Add(new TextBlock { Text = "grubość", VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7, FontSize = 12 });
         Add(row);
@@ -688,7 +838,7 @@ public sealed partial class MainWindow
             if (double.IsNaN(e.NewValue)) return;
             EditLinkStyles(s => s.FontSize = Math.Abs(e.NewValue - Styles.DefaultLinkFontSize) < 0.01 ? null : e.NewValue);
         };
-        _refreshers.Add(() => fs.Value = SelLinks().FirstOrDefault()?.Style?.FontSize ?? Styles.DefaultLinkFontSize);
+        Refreshers.Add(() => fs.Value = SelLinks().FirstOrDefault()?.Style?.FontSize ?? Styles.DefaultLinkFontSize);
         Add(fs);
 
         Section("Polecenia");
@@ -701,7 +851,7 @@ public sealed partial class MainWindow
 
     // ================================================================== klocki panelu
 
-    private void Add(UIElement e) => PropsHost.Children.Add(e);
+    private void Add(UIElement e) => (_buildingPanel ?? throw new InvalidOperationException("Panel nie jest budowany.")).Root.Children.Add(e);
 
     /// <summary>Znaczniki: priorytet i postęp (po jednym), symbole (dowolnie wiele), własne emoji.</summary>
     private void BuildMarkersSection()
@@ -721,7 +871,7 @@ public sealed partial class MainWindow
                 EditNodes(n => Markers.Set(n, m.Id, on));
                 RefreshProperties();
             };
-            _refreshers.Add(() => b.IsChecked = SelNodes().Count > 0 && SelNodes().All(n => Markers.Has(n, m.Id)));
+            Refreshers.Add(() => b.IsChecked = SelNodes().Count > 0 && SelNodes().All(n => Markers.Has(n, m.Id)));
             grid.Children.Add(b);
         }
 
@@ -788,26 +938,69 @@ public sealed partial class MainWindow
         Add(row);
     }
 
+    private int _textEditSeq;
+
+    private string? SingleNodeId() => SelNodes() is [{ } n] ? n.Id : null;
+
     /// <summary>
-    /// Pole tekstowe panelu: zapis przy opuszczeniu pola, ale tylko gdy tekst różni się od ostatnio pokazanego —
-    /// samo „przejście” fokusu przez pole niczego nie nadpisuje.
+    /// Pole tekstowe panelu związane z jednym obiektem mapy (<paramref name="target"/> — id kafelka, strzałki, ramki).
+    /// Obiekt ustala się, gdy pole pokazuje jego wartość, i zmiana trafia zawsze do niego — także wtedy, gdy klik
+    /// w inny kafelek zdążył już zmienić zaznaczenie, zanim pole straciło fokus. Z <paramref name="live"/> wpisywany
+    /// tekst pojawia się na mapie w trakcie pisania (po krótkiej przerwie), a całe pisanie w polu to jeden krok
+    /// cofania. Samo „przejście” fokusu przez pole niczego nie nadpisuje.
     /// </summary>
-    private void BindText(TextBox box, Func<string?> get, Action<string> apply)
+    private void BindText(TextBox box, Func<string?> target, Func<MapSession, string, string?> get, Action<MapSession, string, string> set, bool live = true)
     {
+        MapSession? session = null;
+        string? id = null;
         string synced = "";
+        string mergeKey = "";
         static string Normalize(string s) => s.Replace("\r\n", "\n").Replace('\r', '\n');
-        box.LostFocus += (_, _) =>
+        Microsoft.UI.Dispatching.DispatcherQueueTimer? timer = null;
+
+        void Flush()
         {
+            timer?.Stop();
+            if (session is null || id is null) return;
             var t = Normalize(box.Text);
-            if (_refreshing || t == synced) return;
+            if (t == synced) return;
             synced = t;
-            apply(t);
-        };
-        _refreshers.Add(() =>
+            var (s, target) = (session, id);
+            if (ReferenceEquals(s, _session)) Map.CommitEdit();
+            s.Edit(_ => set(s, target, t), mergeKey);
+        }
+
+        void ShowValue()
         {
-            if (box.FocusState != FocusState.Unfocused) return;
-            synced = Normalize(get() ?? "");
-            box.Text = synced;
+            session = _session;
+            id = target();
+            synced = Normalize(id is null ? "" : get(session, id) ?? "");
+            if (Normalize(box.Text) != synced) box.Text = synced;
+            mergeKey = $"pole-{++_textEditSeq}";
+        }
+
+        if (live)
+        {
+            timer = DispatcherQueue.CreateTimer();
+            timer.Interval = TimeSpan.FromMilliseconds(250);
+            timer.IsRepeating = false;
+            timer.Tick += (_, _) => Flush();
+            box.TextChanged += (_, _) =>
+            {
+                if (box.FocusState == FocusState.Unfocused || Normalize(box.Text) == synced) return;
+                timer.Stop();
+                timer.Start();
+            };
+        }
+        box.GotFocus += (_, _) => mergeKey = $"pole-{++_textEditSeq}"; // każde wejście w pole — osobny krok cofania
+        box.LostFocus += (_, _) => Flush();
+        _textFlushers.Add(Flush);
+        Refreshers.Add(() =>
+        {
+            // ktoś pisze w tym polu o tym samym obiekcie — nie przeszkadzamy (np. odświeżenie po zmianie z pisania)
+            if (box.FocusState != FocusState.Unfocused && ReferenceEquals(session, _session) && id == target()) return;
+            Flush();
+            ShowValue();
         });
     }
 
@@ -816,6 +1009,17 @@ public sealed partial class MainWindow
         Add(new TextBlock { Text = title, Style = (Style)Application.Current.Resources["SubtitleTextBlockStyle"] });
         if (subtitle is not null) Add(new TextBlock { Text = subtitle, TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12 });
     }
+
+    /// <summary>Nagłówek z liczbą zaznaczonych (panel jest budowany raz, a liczba się zmienia).</summary>
+    private void Header(Func<string> title, string? subtitle)
+    {
+        var tb = new TextBlock { Text = title(), Style = (Style)Application.Current.Resources["SubtitleTextBlockStyle"] };
+        Refreshers.Add(() => tb.Text = title());
+        Add(tb);
+        if (subtitle is not null) Add(new TextBlock { Text = subtitle, TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12 });
+    }
+
+    private static Func<string> Counted(string one, string many, Func<int> count) => () => count() is var n && n == 1 ? one : $"{many} ({n})";
 
     private void Section(string title) =>
         Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 2), Opacity = 0.9 });
@@ -897,7 +1101,7 @@ public sealed partial class MainWindow
         }
 
         var accent = Xaml.Brush(Editor.MapCanvas.Accent);
-        _refreshers.Add(() =>
+        Refreshers.Add(() =>
         {
             var cur = current();
             bool matched = false;
@@ -925,7 +1129,7 @@ public sealed partial class MainWindow
             set(exclusive || !currentlyOn);
             RefreshProperties();
         };
-        _refreshers.Add(() => b.IsChecked = SelNodes().FirstOrDefault() is { } n && isOn(n));
+        Refreshers.Add(() => b.IsChecked = SelNodes().FirstOrDefault() is { } n && isOn(n));
         return b;
     }
 
@@ -938,7 +1142,7 @@ public sealed partial class MainWindow
             apply();
             RefreshProperties();
         };
-        _refreshers.Add(() => b.IsChecked = isOn());
+        Refreshers.Add(() => b.IsChecked = isOn());
         return b;
     }
 

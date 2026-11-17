@@ -63,7 +63,7 @@ public sealed partial class MainWindow
         Section("Obrazek");
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         var pick = new Button { Content = count == 1 ? "Wstaw…" : "Wstaw do pierwszego…" };
-        _refreshers.Add(() => pick.Content = SelNodes() is [{ Image: not null }] ? "Zmień…" : "Wstaw…");
+        Refreshers.Add(() => pick.Content = SelNodes() is [{ Image: not null }] ? "Zmień…" : "Wstaw…");
         pick.IsEnabled = count == 1;
         ToolTipService.SetToolTip(pick, "Obrazek nad tekstem kafelka — można też wkleić (Ctrl+V) albo przeciągnąć plik na kafelek");
         pick.Click += (_, _) => _ = PickImageAsync(SelNodes().FirstOrDefault()?.Id);
@@ -71,7 +71,7 @@ public sealed partial class MainWindow
         remove.Click += (_, _) => Map.RemoveImages();
         var open = new Button { Content = "Otwórz" };
         open.Click += (_, _) => { if (SelNodes() is [{ Image: not null } n]) Map.OpenImage(n); };
-        _refreshers.Add(() =>
+        Refreshers.Add(() =>
         {
             bool any = SelNodes().Any(n => n.Image is not null);
             remove.IsEnabled = any;
@@ -99,7 +99,7 @@ public sealed partial class MainWindow
             if (SelNodes().FirstOrDefault(n => n.Image is not null)?.Image is { } img && Math.Abs(img.Width - e.NewValue) < 0.5) return;
             Map.SetImageWidth(e.NewValue);
         };
-        _refreshers.Add(() =>
+        Refreshers.Add(() =>
         {
             var img = SelNodes().FirstOrDefault(n => n.Image is not null)?.Image;
             width.IsEnabled = img is not null;

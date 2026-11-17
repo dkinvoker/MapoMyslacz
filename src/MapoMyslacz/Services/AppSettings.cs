@@ -25,6 +25,12 @@ public sealed class AppSettings
     /// <summary>Delikatna siatka kropek na płótnie.</summary>
     public bool ShowGrid { get; set; }
 
+    /// <summary>
+    /// Nowe kafelki z Tab, Enter i kółka „+” łączone strzałką zamiast gałęzi drzewa (swobodne kafelki ze strzałką,
+    /// którą można wyginać i podpisywać).
+    /// </summary>
+    public bool ChildrenAsArrows { get; set; }
+
     /// <summary>Własne gotowe style („Zapisz styl zaznaczonego kafelka”) — dostępne we wszystkich mapach.</summary>
     public List<CustomStyle> CustomStyles { get; set; } = [];
 

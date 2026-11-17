@@ -59,6 +59,61 @@ public static class MapOps
         }
 
         var node = new Node { Text = text, Parent = parentId };
+        PlaceBeside(node, parent, children, side, size);
+        if (parent.Collapsed) parent.Collapsed = false;
+        map.Nodes.Add(node);
+        return node;
+    }
+
+    /// <summary>
+    /// Nowy kafelek połączony strzałką z <paramref name="fromId"/> zamiast gałęzi (opcja „dzieci jako strzałki”) —
+    /// stoi tam, gdzie stanęłoby dziecko: obok, pod ostatnim z dzieci i kafelków, do których już prowadzą strzałki.
+    /// Rośnie w tę stronę, w którą rośnie sam <paramref name="fromId"/> (od rodzica albo od kafelka, z którego
+    /// prowadzi do niego strzałka).
+    /// </summary>
+    public static Node AddLinkedChild(MindMap map, string fromId, NodeSizer size, string text = DefaultText)
+    {
+        var index = new MapIndex(map);
+        var from = index.Get(fromId) ?? throw new ArgumentException("Nie ma takiego kafelka.", nameof(fromId));
+        var children = index.ChildrenOf(fromId)
+            .Concat(map.Links.Where(l => l.From == fromId).Select(l => index.Get(l.To)).OfType<Node>())
+            .Distinct().ToList();
+
+        int side;
+        if (index.ParentOf(from) is not null) side = SideOf(index, from);
+        else if (ArrowParent(map, index, from) is { } source) side = from.X < source.X ? -1 : 1;
+        else
+        {
+            int right = children.Count(c => c.X >= from.X), left = children.Count - right;
+            side = right <= left ? 1 : -1;
+        }
+
+        var node = new Node { Text = text };
+        PlaceBeside(node, from, children, side, size);
+        map.Nodes.Add(node);
+        AddLink(map, fromId, node.Id);
+        return node;
+    }
+
+    /// <summary>
+    /// Rodzeństwo w trybie „dzieci jako strzałki”: kafelek w drzewie dostaje zwykłe rodzeństwo, a kafelek, do którego
+    /// prowadzi strzałka — kolejny kafelek połączony strzałką z tym samym źródłem.
+    /// </summary>
+    public static Node AddLinkedSibling(MindMap map, string nodeId, NodeSizer size, string text = DefaultText)
+    {
+        var index = new MapIndex(map);
+        var node = index.Get(nodeId) ?? throw new ArgumentException("Nie ma takiego kafelka.", nameof(nodeId));
+        if (node.Parent is null && ArrowParent(map, index, node) is { } source) return AddLinkedChild(map, source.Id, size, text);
+        return AddSibling(map, nodeId, size, text);
+    }
+
+    /// <summary>Kafelek, z którego prowadzi pierwsza strzałka do <paramref name="node"/> (jego „rodzic przez strzałkę”).</summary>
+    private static Node? ArrowParent(MindMap map, MapIndex index, Node node) =>
+        map.Links.Where(l => l.To == node.Id && l.From != node.Id).Select(l => index.Get(l.From)).OfType<Node>().FirstOrDefault();
+
+    /// <summary>Ustawia kafelek obok rodzica, pod najniższym z rodzeństwa po stronie <paramref name="side"/>.</summary>
+    private static void PlaceBeside(Node node, Node parent, IReadOnlyList<Node> children, int side, NodeSizer size)
+    {
         var ps = size(parent);
         var cs = size(node);
         var sameSide = children.Where(c => Math.Sign(c.X - parent.X) == side || (c.X == parent.X && side == 1)).ToList();
@@ -74,9 +129,6 @@ public static class MapOps
         }
         node.X = Math.Round(x);
         node.Y = Math.Round(y);
-        if (parent.Collapsed) parent.Collapsed = false;
-        map.Nodes.Add(node);
-        return node;
     }
 
     /// <summary>Dodaje rodzeństwo pod kafelkiem (dla kafelka bez rodzica — nowy swobodny kafelek pod nim).</summary>

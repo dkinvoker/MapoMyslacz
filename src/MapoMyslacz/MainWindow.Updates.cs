@@ -15,7 +15,6 @@ public sealed partial class MainWindow
     private void SetupUpdates()
     {
         var s = _settings;
-        AutoUpdateCheck.IsChecked = s.CheckForUpdates;
         if (!s.CheckForUpdates || s.LastUpdateCheck is { } last && DateTime.UtcNow - last < TimeSpan.FromHours(20)) return;
         DispatcherQueue.TryEnqueue(async () =>
         {
@@ -153,12 +152,6 @@ public sealed partial class MainWindow
         _settings.SkippedVersion = r.Tag;
         _settings.Save();
         UpdateBar.IsOpen = false;
-    }
-
-    private void AutoUpdate_Click(object sender, RoutedEventArgs e)
-    {
-        _settings.CheckForUpdates = AutoUpdateCheck.IsChecked == true;
-        _settings.Save();
     }
 
     private async void CheckUpdateNow_Click(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync(manual: true);

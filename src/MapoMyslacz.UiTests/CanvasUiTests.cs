@@ -10,7 +10,7 @@ namespace MapoMyslacz.UiTests;
 [Collection("UI")] // jedna aplikacja naraz — testy dzielą mysz i klawiaturę
 public sealed class CanvasUiTests
 {
-    private const string TestMap = """
+    internal const string TestMap = """
         { "format": "MapoMyslacz", "title": "Test interfejsu", "view": { "x": 0, "y": 0, "zoom": 1 },
           "nodes": [
             { "id": "root", "text": "Korzen", "x": 0, "y": 0 },

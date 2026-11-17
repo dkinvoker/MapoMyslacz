@@ -24,8 +24,8 @@ Orientacyjna ilość pracy: **[S]** mała, **[M]** średnia, **[L]** duża.
   zwijanie ramki do samego nagłówka.
 - **Gałęzie łamane [S]:** styl gałęzi drzewa „pod kątem prostym” (jak strzałki łamane) — drzewa genealogiczne
   i schematy organizacyjne bez rysowania strzałek.
-- **Panel właściwości szybciej [S]:** przy pierwszym zaznaczeniu panel buduje kilkadziesiąt kontrolek (znaczniki,
-  palety) — można je tworzyć raz i tylko odświeżać.
+- **Więcej opcji [S]:** okno opcji już jest — np. domyślny motyw nowych map, czas autozapisu, przyciąganie do sąsiadów
+  domyślnie włączone/wyłączone.
 
 ## ✍️ Treść kafelków
 - **Proste formatowanie tekstu [M]:** pogrubienie/kursywa fragmentu, listy punktowane w kafelku i w notatce.

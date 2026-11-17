@@ -4,7 +4,7 @@ Program do map myśli: kafelki, gałęzie i strzałki z podpisami na nieskończo
 do **Native AOT** (okno pojawia się w ułamku sekundy) i rozdawany jako **jeden plik `.exe`** — bez instalatora,
 z automatycznymi aktualizacjami z wydań na GitHubie.
 
-**Wersja 1.3.1** — co się zmieniało, opisuje [CHANGELOG.md](CHANGELOG.md), a pomysły na dalszy rozwój
+**Wersja 1.3.2** — co się zmieniało, opisuje [CHANGELOG.md](CHANGELOG.md), a pomysły na dalszy rozwój
 [Developement.md](Developement.md).
 
 ![Przykładowa mapa](docs/przewodnik.png)
@@ -21,7 +21,8 @@ z automatycznymi aktualizacjami z wydań na GitHubie.
   Karteczka, Pomysł, Uwaga, Nieaktualne…
 - **Gałęzie (drzewo)**: dziecko (Tab), rodzeństwo (Enter), kolorowe gałęzie z palety, zwijanie gałęzi (znaczek „+N”),
   **Uporządkuj** — automatyczny układ (temat główny rozkłada gałęzie na obie strony). Gałąź (linia od rodzica)
-  da się kliknąć: Delete odpina kafelek od rodzica, menu ma „Zamień na strzałkę” i kolor gałęzi.
+  da się kliknąć: Delete odpina kafelek od rodzica, menu ma „Zamień na strzałkę” i kolor gałęzi. W **Opcjach**
+  (menu „?” albo Ctrl+,) nowe kafelki z Tab, Enter i kółka „+” mogą się łączyć **strzałką** zamiast gałęzią.
 - **Strzałki** między dowolnymi kafelkami: podpis, kolor, grubość, linia ciągła/przerywana/kropkowana, groty na
   początku i/lub końcu, łuk, prosta albo **łamana** pod kątem prostym (jak w drzewie genealogicznym). Wygina się je
   przeciągając samą strzałkę albo jej uchwyty.
@@ -75,7 +76,7 @@ z automatycznymi aktualizacjami z wydań na GitHubie.
 
 | Klawisz | Działanie |
 |---|---|
-| Tab / Insert, Enter, Shift+Tab | dziecko, rodzeństwo, przejście do rodzica |
+| Tab / Insert, Enter, Shift+Tab | dziecko, rodzeństwo, przejście do rodzica (dziecko/rodzeństwo ze strzałką — Opcje) |
 | F2 albo po prostu pisanie | edycja tekstu (Shift+Enter — nowy wiersz, Esc — anuluj, Tab — zatwierdź i dodaj dziecko) |
 | strzałki / Ctrl+strzałki | przejście do sąsiedniego kafelka / przesunięcie o 10 px (z Shift o 1 px) |
 | Delete | usuń (kafelek razem z gałęzią) |
@@ -91,6 +92,7 @@ z automatycznymi aktualizacjami z wydań na GitHubie.
 | Ctrl+N / O / S / Shift+S | nowa / otwórz / zapisz / zapisz jako |
 | Ctrl+P, Ctrl+Shift+E, Ctrl+E | drukuj, PDF, obraz PNG |
 | Ctrl+T, Ctrl+PageDown / PageUp | nowy arkusz, następny / poprzedni arkusz |
+| Ctrl+, | opcje (także menu „?” → Opcje…) |
 | Alt+←, F1 | powrót do poprzedniej mapy (po przejściu linkiem), pomoc |
 
 ## Instalacja
@@ -212,7 +214,7 @@ Zwykły JSON (UTF-8), który da się czytać i poprawiać w Notatniku. Zapisywan
 
 ## Mapy z XMind
 
-W programie: **Plik → Importuj z XMind…** (albo po prostu otwórz/przeciągnij plik `.xmind`) — mapa otwiera się jako
+W programie: **Plik → Importuj → Z XMind…** (albo po prostu otwórz/przeciągnij plik `.xmind`) — mapa otwiera się jako
 nowa, niezapisana (każdy arkusz XMind jako osobna zakładka); zapisz ją jako `.mapo`. Z linii poleceń, hurtowo
 (każdy arkusz to osobny plik):
 
@@ -291,15 +293,16 @@ Jedyne elementy XAML nad płótnem to pola edycji tekstu.
 dotnet test src/MapoMyslacz.Tests
 ```
 
-169 testów: format pliku i naprawa uszkodzonych map, operacje edycyjne i schowek, historia cofania i autozapis, geometria
+175 testów: format pliku i naprawa uszkodzonych map, operacje edycyjne i schowek, historia cofania (też łączenie
+kroków przy pisaniu w panelu) i autozapis, kafelki połączone strzałką zamiast gałęzi, geometria
 (krawędzie kształtów, krzywe, łamane, wyginanie strzałek), automatyczny układ, wyrównywanie, ramki, wyszukiwanie,
 style, kolory i motywy, gałęzie, obrazki, arkusze, import XMind, konspekt Markdown (eksport i import), znaczniki,
 linki do plików i kafelków, linki zwrotne, rozkład stron do druku i zapis PDF, logika aktualizacji, rozpakowywanie
 startera i skrypt odinstalowania. Testy nie otwierają okna.
 
 **Testy interfejsu** uruchamiają zbudowaną aplikację i klikają w nią naprawdę (przeciąganie kafelka i cofnięcie,
-zaznaczanie prostokątem, Tab z wpisaniem tekstu, klik w gałąź, wyszukiwanie, ramka, nowy arkusz — wynik sprawdzany
-w zapisanym pliku). Przejmują mysz i klawiaturę na kilkadziesiąt sekund, więc działają tylko na życzenie:
+zaznaczanie prostokątem, Tab z wpisaniem tekstu, klik w gałąź, wyszukiwanie, ramka, nowy arkusz, pisanie w panelu
+właściwości i przejście do innego kafelka, okno opcji i kafelki ze strzałką — wynik sprawdzany w zapisanym pliku). Przejmują mysz i klawiaturę na kilkadziesiąt sekund, więc działają tylko na życzenie:
 
 ```bash
 dotnet build src/MapoMyslacz

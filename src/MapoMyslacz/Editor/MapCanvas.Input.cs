@@ -78,7 +78,7 @@ public sealed partial class MapCanvas
         LostFocus += (_, _) => _spaceDown = false;
     }
 
-    private static readonly string? TraceFile = Environment.GetEnvironmentVariable("MAPOMYSLACZ_TRACE");
+    internal static readonly string? TraceFile = Environment.GetEnvironmentVariable("MAPOMYSLACZ_TRACE");
 
     internal static void Trace(string msg)
     {
@@ -566,11 +566,12 @@ public sealed partial class MapCanvas
             CreateLink(from, target);
             return;
         }
-        // upuszczenie na pustym miejscu: nowe dziecko w tym punkcie
+        // upuszczenie na pustym miejscu: nowe dziecko w tym punkcie (z opcją „dzieci jako strzałki” — kafelek ze strzałką)
         CreateAndEdit(m =>
         {
-            var n = new Node { Text = MapOps.DefaultText, Parent = from, X = Math.Round(w.X), Y = Math.Round(w.Y) };
+            var n = new Node { Text = MapOps.DefaultText, Parent = ChildrenAsArrows ? null : from, X = Math.Round(w.X), Y = Math.Round(w.Y) };
             m.Nodes.Add(n);
+            if (ChildrenAsArrows) MapOps.AddLink(m, from, n.Id);
             return n;
         });
     }

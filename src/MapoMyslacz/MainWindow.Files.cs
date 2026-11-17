@@ -41,7 +41,7 @@ public sealed partial class MainWindow
 
     private async Task<bool> ConfirmDiscardAsync()
     {
-        Map.CommitEdit();
+        CommitAllEdits();
         if (!_document.IsDirty) return true;
         var dlg = new ContentDialog
         {
@@ -179,7 +179,7 @@ public sealed partial class MainWindow
 
     private async Task ExportMarkdownAsync()
     {
-        Map.CommitEdit();
+        CommitAllEdits();
         var path = await PickSaveAsync(SafeFileName(_session.Map.Title ?? _session.DisplayName), "Konspekt Markdown", ".md");
         if (path is null) return;
         try
@@ -224,7 +224,7 @@ public sealed partial class MainWindow
     /// <summary>Zapis (albo „Zapisz jako”). Zwraca false, gdy użytkownik zrezygnował albo wystąpił błąd.</summary>
     private async Task<bool> SaveAsync(bool saveAs)
     {
-        Map.CommitEdit();
+        CommitAllEdits();
         var path = _document.FilePath;
         if (saveAs || path is null)
         {
@@ -250,7 +250,7 @@ public sealed partial class MainWindow
 
     private async Task ExportPngAsync()
     {
-        Map.CommitEdit();
+        CommitAllEdits();
         var path = await PickSaveAsync(SafeFileName(_session.DisplayName), "Obraz PNG", ".png");
         if (path is null) return;
         try

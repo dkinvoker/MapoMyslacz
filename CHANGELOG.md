@@ -4,6 +4,31 @@ Numer wersji jest w jednym miejscu: `Directory.Build.props` (`<Version>`).
 Widać go na pasku tytułu aplikacji, w oknie „O programie” i we właściwościach pliku exe.
 Sekcja z numerem wersji trafia automatycznie do opisu wydania na GitHubie (patrz README → „Wydawanie nowej wersji”).
 
+## 1.3.2 — 2026-11-17
+
+### Nowe
+- **Okno opcji** — menu „?” → „Opcje…” albo Ctrl+, (przecinek). Zmiany działają od razu i zostają zapamiętane.
+- **Nowe kafelki połączone strzałką zamiast gałęzi** (opcja „Nowe kafelki: połączone strzałką”): Tab, Enter i kółko
+  „+” tworzą swobodny kafelek ze zwykłą strzałką od zaznaczonego. Kafelek staje tam, gdzie stanęłoby dziecko (kolejne —
+  jeden pod drugim, w stronę „od rodzica”), strzałka ma styl strzałek z motywu, da się ją wyginać i podpisać.
+  Enter przy kafelku, do którego prowadzi strzałka, tworzy kolejny kafelek ze strzałką z tego samego źródła.
+- **Menu Plik:** importy i eksporty zebrane w podmenu **Importuj** (z XMind, konspekt) i **Eksportuj** (do PDF, do
+  obrazu PNG, do konspektu Markdown). Opcja „Sprawdzaj aktualizacje przy starcie” przeniosła się do okna opcji
+  (razem z minimapą i siatką kropek).
+
+### Poprawki
+- **Tekst, notatka, link i podpis wpisane w panelu właściwości trafiały do złego kafelka.** Pole zapisywało zmianę
+  dopiero przy opuszczeniu, a wtedy brało kafelek zaznaczony *w tej chwili* — klik w inny kafelek najpierw zmieniał
+  zaznaczenie, więc tekst lądował na nowo klikniętym. Teraz pole zapamiętuje swój kafelek (strzałkę, ramkę), a wpisany
+  tekst pojawia się na mapie już w trakcie pisania (link — po wyjściu z pola albo Enter). Całe pisanie w jednym polu to jeden krok cofania. Zapis pliku,
+  eksport i przejście do innego arkusza zapisują też to, co jest właśnie w polu.
+- **Panel właściwości przełącza się od razu.** Wcześniej przy każdej zmianie zaznaczenia (np. nowy kafelek
+  dwuklikiem) panel budował od zera ~150 kontrolek — mijało 0,3–0,6 s, zanim zmienił się z „Mapy” na „Kafelek”. Teraz
+  każdy rodzaj panelu powstaje raz (panel kafelka — w tle zaraz po starcie) i potem tylko się go pokazuje
+  i odświeża: przełączenie trwa kilkanaście milisekund.
+- Testy: 175 jednostkowych i 12 testów interfejsu (nowe: pisanie w panelu i klik w inny kafelek, tekst na mapie
+  w trakcie pisania i cofanie, kafelki ze strzałką, okno opcji).
+
 ## 1.3.1 — 2026-11-17
 
 Pierwsze wydanie wersji 1.3. Wersja 1.3.0 (16 listopada) nie była publikowana osobno, więc ten opis obejmuje

@@ -66,6 +66,7 @@ public sealed partial class MainWindow : Window
         Map.PickImageRequested += id => _ = PickImageAsync(id);
         Map.ShowMinimap = _settings.ShowMinimap;
         Map.ShowGrid = _settings.ShowGrid;
+        ApplyChildrenAsArrows();
         Closed += (_, _) => Map.Shutdown();
         BuildStyleMenu();
         AddAccelerators();
@@ -119,6 +120,7 @@ public sealed partial class MainWindow : Window
         Map.Focus(FocusState.Programmatic);
         _loadedTcs.TrySetResult();
         if (Headless) return;
+        PrewarmPanels();
         if (_startupError is not null) await ShowErrorAsync("Nie udało się otworzyć mapy", _startupError);
         await OfferRecoveryAsync();
         StartAutoSave();
@@ -205,6 +207,7 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.P, VirtualKeyModifiers.Control, () => _ = PrintAsync());
         Add(VirtualKey.Left, VirtualKeyModifiers.Menu, () => _ = GoBackAsync());
         Add(VirtualKey.F1, VirtualKeyModifiers.None, () => _ = ShowHelpAsync());
+        Add((VirtualKey)188, VirtualKeyModifiers.Control, () => _ = ShowOptionsAsync()); // Ctrl+,
         Add(VirtualKey.F, VirtualKeyModifiers.Control, OpenSearch);
         Add(VirtualKey.F3, VirtualKeyModifiers.None, () => StepSearch(1));
         Add(VirtualKey.F3, VirtualKeyModifiers.Shift, () => StepSearch(-1));
@@ -262,20 +265,25 @@ public sealed partial class MainWindow : Window
     }
 
     private bool _propertiesPending, _propertiesAfterPointer;
+    private long _selectionChangedAt;
 
     /// <summary>
-    /// Panel przebudowujemy raz, gdy interfejs jest bezczynny — seria zmian zaznaczenia (np. kilka kliknięć z Ctrl,
-    /// Zaznacz wszystko) nie przebudowuje go po kilkadziesiąt razy. Gdy przycisk myszy jest wciśnięty (kafelek zaznaczony
-    /// i od razu przeciągany), panel czeka do puszczenia — jego budowanie i układ nie przycinają początku przeciągania.
+    /// Panel przełączamy raz po serii zmian zaznaczenia (np. kilka kliknięć z Ctrl, Zaznacz wszystko), zaraz po
+    /// bieżącej obsłudze zdarzenia — gotowe panele tylko się pokazuje i odświeża, więc to szybkie. Gdy przycisk myszy
+    /// jest wciśnięty (kafelek zaznaczony i od razu przeciągany), panel czeka do puszczenia — nie przycina początku
+    /// przeciągania.
     /// </summary>
     private void OnSelectionChanged()
     {
         UpdateCounts();
         if (_propertiesPending) return;
         _propertiesPending = true;
-        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        _selectionChangedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
         {
             _propertiesPending = false;
+            if (Editor.MapCanvas.TraceFile is not null)
+                Editor.MapCanvas.Trace($"panel czekał {System.Diagnostics.Stopwatch.GetElapsedTime(_selectionChangedAt).TotalMilliseconds:0} ms na kolejkę");
             if (Map.IsPointerBusy)
             {
                 _propertiesAfterPointer = true;
@@ -364,6 +372,7 @@ public sealed partial class MainWindow : Window
     private void BuildStyleMenu()
     {
         Map.CustomPresets = _settings.CustomStyles.Select(c => new StylePreset(c.Name, "Mój styl", c.Style)).ToList();
+        _presetsVersion++; // panele kafelków mają przyciski stylów — zbudują się od nowa
         StyleMenu.Items.Clear();
         void AddPreset(StylePreset p, string text)
         {
@@ -407,7 +416,7 @@ public sealed partial class MainWindow : Window
     /// <summary>Wygląd zaznaczonego kafelka jako własny gotowy styl (w ustawieniach — dostępny w każdej mapie).</summary>
     private async Task SaveCustomStyleAsync()
     {
-        Map.CommitEdit();
+        CommitAllEdits();
         var node = _session.SingleNode ?? _session.SelectedNodeObjects.FirstOrDefault();
         var style = node?.Style?.Clone();
         if (style is not null) style.BranchColor = null; // kolor gałęzi zależy od miejsca w mapie, nie od stylu
@@ -549,7 +558,8 @@ public sealed partial class MainWindow : Window
         L("Klik w puste miejsce → panel mapy → Motyw: kolory całej mapy i styl strzałek jednym kliknięciem; „Ujednolić z motywem…” zdejmuje własne kolory\n");
         H("Pliki");
         L("Autozapis co minutę — po awarii program przy starcie zaproponuje przywrócenie niezapisanych zmian");
-        L("Plik → Eksportuj / Importuj konspekt (Markdown) — notatki, wiki, Obsidian; .md i .txt można też upuścić na okno");
+        L("Plik → Eksportuj / Importuj → konspekt (Markdown) — notatki, wiki, Obsidian; .md i .txt można też upuścić na okno");
+        L("Menu „?” → Opcje… (Ctrl+,) — m.in. czy Tab, Enter i kółko „+” tworzą gałąź drzewa, czy kafelek połączony strzałką");
         L("Styl → „Zapisz styl zaznaczonego kafelka jako mój” — własne gotowe style we wszystkich mapach");
         var dlg = new ContentDialog
         {

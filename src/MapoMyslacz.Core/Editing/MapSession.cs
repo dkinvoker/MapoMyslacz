@@ -12,6 +12,7 @@ public sealed class MapSession
     private readonly History _history = new();
     private string? _batchBefore;
     private int _batchDepth;
+    private string? _mergeKey; // klucz ostatniego kroku, do którego można jeszcze doklejać zmiany
     private long _version, _savedVersion;
     private MapIndex? _index;
 
@@ -84,12 +85,16 @@ public sealed class MapSession
 
     // ------------------------------------------------------------------ zmiany
 
-    /// <summary>Wykonuje zmianę jako jeden krok cofania. Zwraca false, jeśli mapa się nie zmieniła.</summary>
-    public bool Edit(Action<MindMap> change)
+    /// <summary>
+    /// Wykonuje zmianę jako jeden krok cofania. Zwraca false, jeśli mapa się nie zmieniła. Kolejne zmiany z tym samym
+    /// <paramref name="mergeKey"/> (bez innych zmian, cofnięć czy ponowień pomiędzy) doklejają się do poprzedniego
+    /// kroku — np. pisanie notatki w panelu na bieżąco zmienia kafelek, a Ctrl+Z cofa całe pisanie naraz.
+    /// </summary>
+    public bool Edit(Action<MindMap> change, string? mergeKey = null)
     {
         BeginBatch();
         change(Map);
-        return EndBatch();
+        return EndBatch(mergeKey);
     }
 
     /// <summary>Początek złożonej zmiany (przeciąganie, edycja tekstu) — zapamiętuje stan „przed”.</summary>
@@ -99,7 +104,7 @@ public sealed class MapSession
     }
 
     /// <summary>Koniec złożonej zmiany: jeśli coś się zmieniło, zapisuje krok w historii i powiadamia widok.</summary>
-    public bool EndBatch()
+    public bool EndBatch(string? mergeKey = null)
     {
         if (_batchDepth == 0) return false;
         if (--_batchDepth > 0) return false;
@@ -111,7 +116,9 @@ public sealed class MapSession
             Changed?.Invoke(); // np. przywrócony tekst po Esc — widok i tak trzeba odświeżyć
             return false;
         }
-        _history.Push(before);
+        // ciąg zmian z tym samym kluczem zostaje jednym krokiem: „przed” pierwszej z nich jest już w historii
+        if (mergeKey is null || mergeKey != _mergeKey || !_history.CanUndo) _history.Push(before);
+        _mergeKey = mergeKey;
         _version++;
         PruneSelection();
         Changed?.Invoke();
@@ -123,6 +130,7 @@ public sealed class MapSession
     {
         if (_batchDepth == 0) return;
         _batchDepth = 0;
+        _mergeKey = null;
         if (_batchBefore is { } before) Restore(before);
         _batchBefore = null;
         Changed?.Invoke();
@@ -136,6 +144,7 @@ public sealed class MapSession
         if (IsBatching) return false;
         var state = _history.Undo(Snapshot());
         if (state is null) return false;
+        _mergeKey = null;
         Restore(state);
         _version++;
         Changed?.Invoke();
@@ -147,6 +156,7 @@ public sealed class MapSession
         if (IsBatching) return false;
         var state = _history.Redo(Snapshot());
         if (state is null) return false;
+        _mergeKey = null;
         Restore(state);
         _version++;
         Changed?.Invoke();
